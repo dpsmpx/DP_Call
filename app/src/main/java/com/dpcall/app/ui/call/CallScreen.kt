@@ -61,6 +61,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -136,8 +137,9 @@ fun CallScreen(state: CallUiState, onAccept: () -> Unit, onMinimize: () -> Unit)
                 PulsingAvatar(
                     name = state.contactName.ifBlank { "?" },
                     seed = state.contactCode,
-                    pulsing = state.state == CallState.RINGING ||
-                        state.state == CallState.CONNECTING || state.isReconnecting
+                    pulsing = state.state == CallState.RINGING || state.state == CallState.CONNECTING ||
+                        state.isReconnecting ||
+                        (state.state == CallState.WAITING_FOR_ANSWER && state.viaRelay && !state.peerUnreachable)
                 )
                 Spacer(Modifier.height(20.dp))
                 Text(
@@ -153,8 +155,25 @@ fun CallScreen(state: CallUiState, onAccept: () -> Unit, onMinimize: () -> Unit)
                 Spacer(Modifier.height(24.dp))
 
                 when (state.state) {
-                    CallState.WAITING_FOR_ANSWER -> state.signalToCopy?.let { OfferExchange(it) }
-                    CallState.CONNECTING -> state.signalToCopy?.let { AnswerExchange(it) }
+                    CallState.WAITING_FOR_ANSWER -> state.signalToCopy?.let { signal ->
+                        ManualFallback(
+                            automatic = state.viaRelay && !state.peerUnreachable,
+                            label = "Отправить приглашение вручную",
+                            hint = if (state.peerUnreachable) {
+                                "Вызов не дошёл: приложение собеседника не на связи. " +
+                                    "Отправьте приглашение через мессенджер — он ответит, когда увидит."
+                            } else {
+                                null
+                            }
+                        ) { OfferExchange(signal) }
+                    }
+                    CallState.CONNECTING -> state.signalToCopy?.let { signal ->
+                        ManualFallback(
+                            automatic = state.viaRelay,
+                            label = "Отправить ответ вручную",
+                            hint = null
+                        ) { AnswerExchange(signal) }
+                    }
                     CallState.FAILED -> state.errorMessage?.let { ErrorCard(it) }
                     else -> {}
                 }
@@ -280,8 +299,12 @@ private fun StatusLine(state: CallUiState) {
             color = MaterialTheme.colorScheme.error
         )
         else -> Text(
-            if (state.state == CallState.CONNECTING && state.signalToCopy == null) "Соединяемся…"
-            else if (state.isIncoming) "Входящий звонок" else "Исходящий звонок",
+            when {
+                state.state == CallState.CONNECTING && (state.signalToCopy == null || state.viaRelay) -> "Соединяемся…"
+                state.state == CallState.WAITING_FOR_ANSWER && state.viaRelay -> state.statusMessage.ifBlank { "Вызываем…" }
+                state.isIncoming -> "Входящий звонок"
+                else -> "Исходящий звонок"
+            },
             style = MaterialTheme.typography.titleMedium,
             color = muted
         )
@@ -314,6 +337,30 @@ private fun formatDuration(totalSec: Long): String {
 }
 
 // ------------------------------------------------------------- обмен кодами
+
+/**
+ * Пока вызов доставляется сам (через релеи), ручной обмен кодами спрятан за
+ * кнопкой; если автоматическая доставка невозможна — показан сразу.
+ */
+@Composable
+private fun ManualFallback(automatic: Boolean, label: String, hint: String?, content: @Composable () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (hint != null) {
+            Text(
+                hint,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
+        if (automatic && !expanded) {
+            TextButton(onClick = { expanded = true }) { Text(label) }
+        } else {
+            content()
+        }
+    }
+}
 
 @Composable
 private fun StepCard(number: Int, title: String, content: @Composable () -> Unit) {

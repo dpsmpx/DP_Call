@@ -24,6 +24,12 @@
 - Mute, noise suppression both ways, Opus tuning
 - UI polish
 
+## Stage 2.6 — Calls reach the peer by themselves (done, needs device testing)
+- Key-based identity (code = public key)
+- End-to-end encrypted signaling over public Nostr relays
+- Background listening service, start on boot
+- Contacts-only incoming calls
+
 ## Stage 3 — Polish
 - Themes refinement
 - Permission UX

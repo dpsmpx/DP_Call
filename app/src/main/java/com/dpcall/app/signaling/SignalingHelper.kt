@@ -5,12 +5,14 @@ object SignalingHelper {
     fun createOffer(
         sdp: String,
         candidates: List<String> = emptyList(),
-        myIdentity: String? = null
+        myIdentity: String? = null,
+        callId: String? = null
     ): String {
         val payload = SdpPayload(
             sdp = sdp,
             candidates = candidates,
-            identity = myIdentity
+            identity = myIdentity,
+            callId = callId
         )
         return SignalCodec.encode(SignalType.OFFER, payload)
     }
@@ -18,12 +20,14 @@ object SignalingHelper {
     fun createAnswer(
         sdp: String,
         candidates: List<String> = emptyList(),
-        myIdentity: String? = null
+        myIdentity: String? = null,
+        callId: String? = null
     ): String {
         val payload = SdpPayload(
             sdp = sdp,
             candidates = candidates,
-            identity = myIdentity
+            identity = myIdentity,
+            callId = callId
         )
         return SignalCodec.encode(SignalType.ANSWER, payload)
     }

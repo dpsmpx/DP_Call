@@ -1,5 +1,12 @@
 package com.dpcall.app.ui.home
 
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PhoneCallback
@@ -25,7 +33,9 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -43,6 +53,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -54,6 +66,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -63,7 +76,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.dpcall.app.call.ListenService
+import com.dpcall.app.call.RelaySignaling
+import com.dpcall.app.call.RelayStatus
 import com.dpcall.app.call.SignalResult
+import com.dpcall.app.data.AppSettings
+import com.dpcall.app.util.CodeValidator
 import com.dpcall.app.domain.Contact
 import com.dpcall.app.ui.components.Avatar
 import com.dpcall.app.ui.components.shareText
@@ -79,6 +97,8 @@ fun HomeScreen(
     val context = LocalContext.current
     var contactToDelete by remember { mutableStateOf<Contact?>(null) }
     var contactToRename by remember { mutableStateOf<Contact?>(null) }
+    var showSettings by remember { mutableStateOf(false) }
+    val relayStatus by RelaySignaling.status.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -89,11 +109,13 @@ fun HomeScreen(
                     FilledTonalButton(
                         onClick = { viewModel.openIncomingDialog() },
                         contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.padding(end = 12.dp)
                     ) {
                         Icon(Icons.AutoMirrored.Filled.PhoneCallback, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("Ответить")
+                    }
+                    IconButton(onClick = { showSettings = true }) {
+                        Icon(Icons.Default.Settings, "Настройки")
                     }
                 }
             )
@@ -125,6 +147,7 @@ fun HomeScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    item(key = "status") { ConnectionStatus(relayStatus, onClick = { showSettings = true }) }
                     item(key = "own-code") {
                         OwnCodeCard(
                             code = state.identity?.value ?: "",
@@ -197,6 +220,10 @@ fun HomeScreen(
         )
     }
 
+    if (showSettings) {
+        SettingsDialog(relayStatus = relayStatus, onDismiss = { showSettings = false })
+    }
+
     contactToDelete?.let { contact ->
         AlertDialog(
             onDismissRequest = { contactToDelete = null },
@@ -238,7 +265,109 @@ fun HomeScreen(
 }
 
 /** Код разбивается на группы только для отображения — копируется он целиком. */
-private fun formatCode(code: String): String = code.chunked(5).joinToString(" ")
+private fun formatCode(code: String): String = code.chunked(4).joinToString(" ")
+
+private val OnlineGreen = Color(0xFF2E9E5B)
+
+@Composable
+private fun ConnectionStatus(status: RelayStatus, onClick: () -> Unit) {
+    val color = if (status.online) OnlineGreen else MaterialTheme.colorScheme.error
+    Surface(onClick = onClick, shape = RoundedCornerShape(50), color = color.copy(alpha = 0.12f)) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(8.dp).background(color, CircleShape))
+            Spacer(Modifier.width(10.dp))
+            Text(
+                if (status.online) "На связи — вам можно позвонить" else "Нет связи — звонки не дойдут",
+                style = MaterialTheme.typography.labelLarge,
+                color = color
+            )
+        }
+    }
+}
+
+private fun isBatteryUnrestricted(context: Context): Boolean =
+    (context.getSystemService(Context.POWER_SERVICE) as PowerManager)
+        .isIgnoringBatteryOptimizations(context.packageName)
+
+@SuppressLint("BatteryLife") // для звонилки без push это единственный способ не пропускать вызовы
+private fun requestBatteryExemption(context: Context) {
+    try {
+        context.startActivity(
+            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}"))
+        )
+    } catch (e: Exception) {
+        try {
+            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        } catch (ignored: Exception) {
+        }
+    }
+}
+
+@Composable
+private fun SettingRow(title: String, description: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+@Composable
+private fun SettingsDialog(relayStatus: RelayStatus, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val settings = remember { AppSettings.get(context) }
+    val background by settings.backgroundListening.collectAsStateWithLifecycle()
+    val contactsOnly by settings.contactsOnly.collectAsStateWithLifecycle()
+    // Перечитывается при каждом открытии диалога и после возврата из системных настроек.
+    val unrestricted = isBatteryUnrestricted(context)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Настройки") },
+        text = {
+            Column {
+                Text(
+                    if (relayStatus.online) "На связи: ${relayStatus.connected} из ${relayStatus.total} релеев"
+                    else "Нет связи с релеями. Проверьте интернет и VPN",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (relayStatus.online) OnlineGreen else MaterialTheme.colorScheme.error
+                )
+                Spacer(Modifier.height(8.dp))
+                SettingRow(
+                    title = "Принимать звонки в фоне",
+                    description = "Приложение остаётся на связи, когда закрыто. В шторке висит тихое уведомление — его можно скрыть в настройках Android",
+                    checked = background,
+                    onChange = {
+                        settings.setBackgroundListening(it)
+                        ListenService.sync(context)
+                    }
+                )
+                SettingRow(
+                    title = "Только от контактов",
+                    description = "Вызовы с незнакомых кодов молча отбрасываются",
+                    checked = contactsOnly,
+                    onChange = { settings.setContactsOnly(it) }
+                )
+                if (background && !unrestricted) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Android может усыплять приложение и задерживать звонки. Чтобы этого не было, разрешите работу без ограничений батареи.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    FilledTonalButton(onClick = { requestBatteryExemption(context) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Не ограничивать в фоне")
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Готово") } }
+    )
+}
 
 @Composable
 private fun OwnCodeCard(code: String, copied: Boolean, onCopy: () -> Unit, onShare: () -> Unit) {
@@ -319,6 +448,7 @@ private fun EmptyContacts(onAdd: () -> Unit) {
 @Composable
 private fun ContactItem(contact: Contact, onCall: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit) {
     var menuOpen by remember { mutableStateOf(false) }
+    val legacy = !CodeValidator.isValid(contact.code)
     Card(
         Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -337,15 +467,32 @@ private fun ContactItem(contact: Contact, onCall: () -> Unit, onRename: () -> Un
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    contact.code.take(5) + " … " + contact.code.takeLast(5),
-                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
-                )
+                if (legacy) {
+                    Text(
+                        "Старый код — попросите новый и добавьте заново",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        maxLines = 2
+                    )
+                } else {
+                    Text(
+                        contact.code.take(5) + " … " + contact.code.takeLast(5),
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
             }
-            FilledTonalIconButton(onClick = onCall) {
-                Icon(Icons.Default.Call, "Позвонить: ${contact.name}")
+            if (legacy) {
+                Icon(
+                    Icons.Default.Warning, null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+            } else {
+                FilledTonalIconButton(onClick = onCall) {
+                    Icon(Icons.Default.Call, "Позвонить: ${contact.name}")
+                }
             }
             Box {
                 IconButton(onClick = { menuOpen = true }) {

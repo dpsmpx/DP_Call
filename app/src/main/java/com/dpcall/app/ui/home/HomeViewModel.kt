@@ -111,8 +111,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         val name = state.addNameInput.trim()
 
         when {
+            CodeValidator.isLegacy(code) -> {
+                _uiState.update {
+                    it.copy(addError = "Это код старого формата. Попросите собеседника обновить приложение и прислать новый код")
+                }
+                return
+            }
             !CodeValidator.isValid(code) -> {
-                _uiState.update { it.copy(addError = "Неверный формат кода") }
+                _uiState.update { it.copy(addError = "Неверный код: в нём должно быть 52 символа") }
                 return
             }
             name.isBlank() -> {

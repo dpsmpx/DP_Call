@@ -73,11 +73,15 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("io.getstream:stream-webrtc-android:1.3.10")
+    // Сигналинг через релеи Nostr: WebSocket и ключи secp256k1
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("fr.acinq.secp256k1:secp256k1-kmp-jni-android:0.16.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("fr.acinq.secp256k1:secp256k1-kmp-jni-jvm:0.16.0")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
 }

@@ -245,13 +245,17 @@ class CallService : Service() {
         private const val TAG = "CallService"
         private const val MAX_CALL_MS = 6 * 60 * 60 * 1000L
 
-        /** Запускает сервис; если система не разрешила (приложение в фоне) — звонок идёт без него. */
-        fun start(context: Context) {
-            try {
-                ContextCompat.startForegroundService(context, Intent(context, CallService::class.java))
-            } catch (e: Exception) {
-                Log.w(TAG, "Cannot start call service", e)
-            }
+        /**
+         * Запускает сервис.
+         * @return false, если система не разрешила (приложение в фоне) — тогда
+         *   уведомление звонка показывается напрямую, см. CallNotifications.notifyDirect.
+         */
+        fun start(context: Context): Boolean = try {
+            ContextCompat.startForegroundService(context, Intent(context, CallService::class.java))
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Cannot start call service", e)
+            false
         }
     }
 }

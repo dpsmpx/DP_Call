@@ -1,18 +1,19 @@
 package com.dpcall.app.util
 
+import com.dpcall.app.domain.IdentityGenerator
+
 /**
- * Проверка формата identity-кода.
- * Ожидаем Crockford Base32, 20–40 символов (наш генератор даёт 26).
+ * Проверка кода собеседника: 52 символа Crockford Base32, за которыми стоит
+ * корректный публичный ключ.
  */
 object CodeValidator {
 
-    private val VALID_CHARS = "0123456789ABCDEFGHJKMNPQRSTVWXYZ".toSet()
+    private const val LEGACY_LENGTH = 26
 
-    fun isValid(code: String): Boolean {
-        val cleaned = code.trim().uppercase()
-        if (cleaned.length !in 20..40) return false
-        return cleaned.all { it in VALID_CHARS }
-    }
+    fun isValid(code: String): Boolean = IdentityGenerator.publicKeyFromCode(code) != null
 
-    fun normalize(code: String): String = code.trim().uppercase()
+    /** Код старого формата (до перехода на ключи): по нему нельзя позвонить. */
+    fun isLegacy(code: String): Boolean = normalize(code).length == LEGACY_LENGTH
+
+    fun normalize(code: String): String = code.filterNot { it.isWhitespace() }.uppercase()
 }

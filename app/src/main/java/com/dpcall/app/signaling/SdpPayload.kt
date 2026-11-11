@@ -10,5 +10,7 @@ data class SdpPayload(
     val sdp: String,
     val candidates: List<String> = emptyList(),
     val identity: String? = null,
-    val ts: Long = System.currentTimeMillis()
+    val ts: Long = System.currentTimeMillis(),
+    /** Идентификатор звонка: связывает приглашение и ответ, пришедшие разными путями. */
+    val callId: String? = null
 )

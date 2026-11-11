@@ -23,10 +23,12 @@ object CallNotifications {
 
     const val CALL_NOTIFICATION_ID = 1001
     private const val MISSED_NOTIFICATION_ID = 1002
+    const val LISTEN_NOTIFICATION_ID = 1003
 
     private const val CHANNEL_INCOMING = "incoming_calls"
     private const val CHANNEL_ONGOING = "ongoing_calls"
     private const val CHANNEL_MISSED = "missed_calls"
+    private const val CHANNEL_LISTEN = "listening"
 
     fun ensureChannels(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -57,7 +59,13 @@ object CallNotifications {
         val missed = NotificationChannel(
             CHANNEL_MISSED, "Пропущенные звонки", NotificationManager.IMPORTANCE_DEFAULT
         )
-        nm.createNotificationChannels(listOf(incoming, ongoing, missed))
+        val listen = NotificationChannel(
+            CHANNEL_LISTEN, "Ожидание звонков", NotificationManager.IMPORTANCE_MIN
+        ).apply {
+            description = "Постоянное уведомление фоновой связи. Его можно скрыть — звонки продолжат приходить"
+            setShowBadge(false)
+        }
+        nm.createNotificationChannels(listOf(incoming, ongoing, missed, listen))
     }
 
     fun canPostNotifications(context: Context): Boolean =
@@ -140,6 +148,40 @@ object CallNotifications {
             builder.setShowWhen(false)
         }
         return builder.build()
+    }
+
+    /** Постоянное уведомление сервиса ожидания звонков. */
+    fun listening(context: Context, status: RelayStatus): Notification =
+        NotificationCompat.Builder(context, CHANNEL_LISTEN)
+            .setSmallIcon(R.drawable.ic_stat_call)
+            .setContentTitle(if (status.online) "Готов принимать звонки" else "Нет связи — звонки не дойдут")
+            .setContentText(
+                if (status.online) "На связи: ${status.connected} из ${status.total} релеев"
+                else "Подключаемся к релеям…"
+            )
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setShowWhen(false)
+            .setContentIntent(activityIntent(context, 4, answer = false))
+            .build()
+
+    /**
+     * Показывает уведомление звонка напрямую, без foreground-сервиса: запасной
+     * путь, когда система не разрешила запустить [CallService] из фона.
+     */
+    fun notifyDirect(context: Context, state: CallUiState) {
+        try {
+            NotificationManagerCompat.from(context).notify(CALL_NOTIFICATION_ID, build(context, state))
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Call notification not allowed", e)
+        }
+    }
+
+    fun cancelDirect(context: Context) {
+        NotificationManagerCompat.from(context).cancel(CALL_NOTIFICATION_ID)
     }
 
     fun showMissedCall(context: Context, name: String) {

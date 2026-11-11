@@ -5,12 +5,14 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.telecom.DisconnectCause
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.dpcall.app.data.AppSettings
 import com.dpcall.app.data.ContactsRepository
 import com.dpcall.app.data.IdentityRepository
 import com.dpcall.app.domain.Contact
@@ -18,6 +20,8 @@ import com.dpcall.app.signaling.DecodedSignal
 import com.dpcall.app.signaling.SignalCodec
 import com.dpcall.app.signaling.SignalType
 import com.dpcall.app.signaling.SignalingHelper
+import com.dpcall.app.signaling.relay.CallMessage
+import com.dpcall.app.util.CodeValidator
 import com.dpcall.app.webrtc.AudioCallManager
 import com.dpcall.app.webrtc.AudioRoute
 import com.dpcall.app.webrtc.CallState
@@ -37,6 +41,7 @@ import kotlinx.coroutines.launch
 import org.webrtc.IceCandidate
 import org.webrtc.PeerConnection
 import org.webrtc.SessionDescription
+import java.util.UUID
 import kotlin.math.abs
 
 enum class LinkQuality { UNKNOWN, GOOD, FAIR, POOR }
@@ -52,6 +57,12 @@ data class CallUiState(
     val isRemoteMuted: Boolean = false,
     val isOnHold: Boolean = false,
     val isReconnecting: Boolean = false,
+    /** Собеседник достижим через релеи — ручной обмен кодами не нужен. */
+    val viaRelay: Boolean = false,
+    /** Телефон собеседника уже звонит. */
+    val remoteRinging: Boolean = false,
+    /** Вызов не дошёл: собеседник не в сети. Остаётся ручная отправка приглашения. */
+    val peerUnreachable: Boolean = false,
     val audioRoute: AudioRoute = AudioRoute.EARPIECE,
     val availableRoutes: List<AudioRoute> = listOf(AudioRoute.EARPIECE, AudioRoute.SPEAKER),
     val noiseSuppression: Boolean = true,
@@ -94,8 +105,13 @@ object CallManager {
     private const val RECONNECT_TIMEOUT_MS = 20_000L
     private const val ENDED_SCREEN_MS = 1_800L
     private const val AUTO_OFFER_MAX_AGE_MS = 30 * 60_000L
-    private const val PREFS = "call_settings"
-    private const val KEY_NOISE_SUPPRESSION = "noise_suppression"
+    private const val OFFER_RESEND_MS = 5_000L
+    private const val OFFER_RESEND_ATTEMPTS = 9
+    private const val ANSWER_RESEND_MS = 3_000L
+    private const val ANSWER_RESEND_ATTEMPTS = 5
+    private const val NO_ANSWER_TIMEOUT_MS = 65_000L
+    /** С запасом на неточные часы устройств; повторы отсекаются по идентификатору звонка. */
+    private const val RELAY_MESSAGE_MAX_AGE_MS = 5 * 60_000L
     private const val MSG_BYE = "bye"
     private const val MSG_MUTE = "mute:"
 
@@ -117,6 +133,18 @@ object CallManager {
     private var signalFinalized = false
     private var useFallbackRouting = false
     private var statsJob: Job? = null
+    private var resendJob: Job? = null
+    private var ringback: ToneGenerator? = null
+    private lateinit var settings: AppSettings
+
+    /** Идентификатор текущего звонка в сигнальном канале. */
+    private var callId = ""
+    /** Завершённые звонки: повторно пришедшие сообщения по ним игнорируются. */
+    private val finishedCallIds = LinkedHashSet<String>()
+    /** Звонки, которые пользователь отклонил: на повтор приглашения отвечаем отказом ещё раз. */
+    private val rejectedCallIds = HashSet<String>()
+    /** Система не дала запустить CallService из фона — уведомление показываем сами. */
+    private var serviceFallback = false
     private val handledSignals = HashSet<Int>()
 
     private val _uiState = MutableStateFlow(CallUiState())
@@ -129,7 +157,20 @@ object CallManager {
         app = context.applicationContext
         audio = AudioCallManager(app)
         telecom = TelecomBridge(app, scope, telecomListener)
-        _uiState.update { it.copy(noiseSuppression = loadNoiseSuppression()) }
+        settings = AppSettings.get(app)
+        _uiState.update { it.copy(noiseSuppression = settings.noiseSuppression) }
+        scope.launch {
+            // Запасной путь уведомлений, когда foreground-сервис звонка недоступен.
+            uiState.collect { state ->
+                if (!serviceFallback) return@collect
+                if (state.state.isActive) {
+                    CallNotifications.notifyDirect(app, state)
+                } else {
+                    serviceFallback = false
+                    CallNotifications.cancelDirect(app)
+                }
+            }
+        }
 
         val identityRepo = IdentityRepository(app)
         scope.launch {
@@ -166,16 +207,19 @@ object CallManager {
             return
         }
         val gen = beginCall()
+        callId = UUID.randomUUID().toString()
+        val reachable = CodeValidator.isValid(contactCode)
         _uiState.update {
             freshState().copy(
                 state = CallState.CREATING_OFFER,
                 isIncoming = false,
                 contactName = contactName,
                 contactCode = contactCode,
-                statusMessage = "Готовим приглашение…"
+                viaRelay = reachable,
+                statusMessage = if (reachable) "Вызываем…" else "Готовим приглашение…"
             )
         }
-        CallService.start(app)
+        ensureService()
         startTelecom(contactName, contactCode, incoming = false)
         startAudio()
 
@@ -211,10 +255,14 @@ object CallManager {
                     if (key in handledSignals || age > AUTO_OFFER_MAX_AGE_MS) return SignalResult.Ignored
                 }
                 if (state.isActive) {
-                    return if (key in handledSignals) SignalResult.Ignored else SignalResult.Busy
+                    // То же приглашение могло уже прийти через релеи.
+                    val sameCall = decoded.payload.callId != null && decoded.payload.callId == callId
+                    return if (sameCall || key in handledSignals) SignalResult.Ignored else SignalResult.Busy
                 }
                 handledSignals += key
-                ring(decoded)
+                val id = decoded.payload.callId ?: UUID.randomUUID().toString()
+                if (id in finishedCallIds) return SignalResult.Ignored
+                ring(decoded, code = remoteId.orEmpty(), id = id, viaRelay = false)
                 if (autoAccept) acceptIncoming()
                 SignalResult.Ringing
             }
@@ -230,9 +278,9 @@ object CallManager {
         }
     }
 
-    private fun ring(offer: DecodedSignal) {
+    private fun ring(offer: DecodedSignal, code: String, id: String, viaRelay: Boolean) {
         val gen = beginCall()
-        val code = offer.payload.identity.orEmpty()
+        callId = id
         val name = contacts.firstOrNull { it.code.equals(code, ignoreCase = true) }?.name
             ?: "Неизвестный абонент"
         pendingOffer = offer
@@ -242,10 +290,11 @@ object CallManager {
                 isIncoming = true,
                 contactName = name,
                 contactCode = code,
+                viaRelay = viaRelay,
                 statusMessage = "Входящий звонок"
             )
         }
-        CallService.start(app)
+        ensureService()
         startTelecom(name, code, incoming = true)
         main.postDelayed({
             if (gen == generation && state == CallState.RINGING) {
@@ -253,6 +302,137 @@ object CallManager {
                 finish(DisconnectCause.MISSED, "Пропущенный звонок", graceful = false)
             }
         }, RING_TIMEOUT_MS)
+    }
+
+    // ------------------------------------------------------- сигналы через релеи
+
+    /** Сообщение сигнального канала. Отправитель уже проверен криптографически. */
+    fun onRelayMessage(fromCode: String, message: CallMessage) {
+        if (abs(System.currentTimeMillis() - message.ts) > RELAY_MESSAGE_MAX_AGE_MS) return
+        if (message.t == CallMessage.OFFER) {
+            onRelayOffer(fromCode, message)
+            return
+        }
+        val current = _uiState.value
+        if (message.id != callId || !current.state.isActive ||
+            !fromCode.equals(current.contactCode, ignoreCase = true)
+        ) {
+            return
+        }
+        when (message.t) {
+            CallMessage.RINGING -> if (current.state == CallState.WAITING_FOR_ANSWER && !current.remoteRinging) {
+                _uiState.update { it.copy(remoteRinging = true, peerUnreachable = false, statusMessage = "Звонит…") }
+                startRingback()
+                val gen = generation
+                main.postDelayed({
+                    if (gen == generation && state == CallState.WAITING_FOR_ANSWER) {
+                        sendToPeer(CallMessage.CANCEL)
+                        finish(DisconnectCause.LOCAL, "Нет ответа", graceful = false)
+                    }
+                }, NO_ANSWER_TIMEOUT_MS)
+            }
+            CallMessage.ANSWER -> if (current.state == CallState.WAITING_FOR_ANSWER) {
+                val decoded = message.signal?.let { SignalCodec.decode(it).getOrNull() }
+                if (decoded != null && decoded.type == SignalType.ANSWER) applyRemoteAnswer(decoded)
+            }
+            CallMessage.REJECT -> if (current.state == CallState.WAITING_FOR_ANSWER) {
+                finish(DisconnectCause.REMOTE, "Вызов отклонён", graceful = false)
+            }
+            CallMessage.BUSY -> if (current.state == CallState.WAITING_FOR_ANSWER) {
+                finish(DisconnectCause.REMOTE, "Абонент занят", graceful = false)
+            }
+            CallMessage.CANCEL, CallMessage.BYE -> {
+                if (current.state == CallState.RINGING) {
+                    CallNotifications.showMissedCall(app, current.contactName)
+                    finish(DisconnectCause.MISSED, "", graceful = false, showEnded = false)
+                } else {
+                    finish(DisconnectCause.REMOTE, "Собеседник завершил звонок", graceful = false)
+                }
+            }
+        }
+    }
+
+    private fun onRelayOffer(fromCode: String, message: CallMessage) {
+        val signal = message.signal ?: return
+        if (message.id in finishedCallIds) {
+            // Наш отказ мог потеряться — вызывающий всё ещё повторяет приглашение.
+            if (message.id in rejectedCallIds) {
+                RelaySignaling.send(fromCode, CallMessage(CallMessage.REJECT, message.id))
+            }
+            return
+        }
+        if (message.id == callId && state.isActive) {
+            // Вызывающий повторяет приглашение, пока не получит подтверждение.
+            if (state == CallState.RINGING) sendToPeer(CallMessage.RINGING)
+            return
+        }
+        val known = contacts.any { it.code.equals(fromCode, ignoreCase = true) }
+        if (!known && settings.contactsOnly.value) {
+            Log.d(TAG, "Call from unknown code ignored")
+            return
+        }
+        val decoded = SignalCodec.decode(signal).getOrNull() ?: return
+        if (decoded.type != SignalType.OFFER) return
+        if (state.isActive) {
+            RelaySignaling.send(fromCode, CallMessage(CallMessage.BUSY, message.id))
+            return
+        }
+        ring(decoded, code = fromCode, id = message.id, viaRelay = true)
+        sendToPeer(CallMessage.RINGING)
+    }
+
+    /** Отправляет служебное сообщение собеседнику текущего звонка. */
+    private fun sendToPeer(type: String, signal: String? = null) {
+        val code = _uiState.value.contactCode
+        if (callId.isBlank() || !CodeValidator.isValid(code)) return
+        RelaySignaling.send(code, CallMessage(type, callId, signal))
+    }
+
+    /** Повторяет сообщение: события эфемерны, а собеседник мог быть не на связи. */
+    private fun startResend(type: String, signal: String, attempts: Int, intervalMs: Long, done: () -> Boolean, onExhausted: () -> Unit = {}) {
+        resendJob?.cancel()
+        if (!CodeValidator.isValid(_uiState.value.contactCode)) return
+        val gen = generation
+        resendJob = scope.launch {
+            repeat(attempts) {
+                if (gen != generation || done()) return@launch
+                sendToPeer(type, signal)
+                delay(intervalMs)
+            }
+            if (gen == generation && !done()) onExhausted()
+        }
+    }
+
+    private fun startRingback() {
+        stopRingback()
+        try {
+            ringback = ToneGenerator(AudioManager.STREAM_VOICE_CALL, 50).also {
+                it.startTone(ToneGenerator.TONE_SUP_RINGTONE)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Ringback tone unavailable", e)
+        }
+    }
+
+    private fun stopRingback() {
+        try {
+            ringback?.let {
+                it.stopTone()
+                it.release()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Ringback release failed", e)
+        }
+        ringback = null
+    }
+
+    private fun ensureService() {
+        if (CallService.start(app)) {
+            serviceFallback = false
+        } else {
+            serviceFallback = true
+            CallNotifications.notifyDirect(app, _uiState.value)
+        }
     }
 
     /** @return false, если принять нельзя (нет звонка или нет доступа к микрофону). */
@@ -263,7 +443,9 @@ object CallManager {
         val gen = generation
         pendingOffer = null
 
-        _uiState.update { it.copy(state = CallState.CREATING_ANSWER, statusMessage = "Готовим ответ…") }
+        _uiState.update { it.copy(state = CallState.CREATING_ANSWER, statusMessage = "Соединяемся…") }
+        // Приложение сейчас на экране — сервис с доступом к микрофону точно запустится.
+        ensureService()
         telecom.answer()
         startAudio()
 
@@ -287,15 +469,21 @@ object CallManager {
 
     fun declineIncoming() {
         if (state != CallState.RINGING) return
+        if (rejectedCallIds.size > 200) rejectedCallIds.clear()
+        rejectedCallIds += callId
+        sendToPeer(CallMessage.REJECT)
         finish(DisconnectCause.REJECTED, "Вызов отклонён", graceful = false, showEnded = false)
     }
 
     private fun applyRemoteAnswer(answer: DecodedSignal) {
         val gen = generation
+        stopRingback()
+        resendJob?.cancel()
         _uiState.update {
             it.copy(
                 state = CallState.CONNECTING,
                 signalToCopy = null,
+                peerUnreachable = false,
                 statusMessage = "Соединяемся…",
                 errorMessage = null
             )
@@ -350,8 +538,7 @@ object CallManager {
 
     /** Шумоподавление в обе стороны: наш микрофон и звук собеседника. */
     fun setNoiseSuppression(enabled: Boolean) {
-        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putBoolean(KEY_NOISE_SUPPRESSION, enabled).apply()
+        settings.noiseSuppression = enabled
         _uiState.update { it.copy(noiseSuppression = enabled) }
         pcm?.setNoiseSuppression(enabled)
     }
@@ -359,12 +546,18 @@ object CallManager {
     fun hangup() {
         when {
             state == CallState.RINGING -> declineIncoming()
-            state.isActive -> {
-                pcm?.sendControl(MSG_BYE)
-                finish(DisconnectCause.LOCAL, "Звонок завершён", graceful = true)
-            }
+            state.isActive -> endByUser()
             else -> dismiss()
         }
+    }
+
+    private fun endByUser() {
+        val current = _uiState.value
+        val notAnsweredYet = !current.isIncoming &&
+            (current.state == CallState.CREATING_OFFER || current.state == CallState.WAITING_FOR_ANSWER)
+        pcm?.sendControl(MSG_BYE)
+        sendToPeer(if (notAnsweredYet) CallMessage.CANCEL else CallMessage.BYE)
+        finish(DisconnectCause.LOCAL, "Звонок завершён", graceful = true)
     }
 
     /** Закрывает экран завершённого / неудачного звонка. */
@@ -375,9 +568,6 @@ object CallManager {
     // ------------------------------------------------------------------ внутреннее
 
     private fun freshState() = CallUiState(noiseSuppression = _uiState.value.noiseSuppression)
-
-    private fun loadNoiseSuppression(): Boolean =
-        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_NOISE_SUPPRESSION, true)
 
     /** Сбрасывает всё от предыдущего звонка и возвращает номер нового поколения. */
     private fun beginCall(): Int {
@@ -419,7 +609,7 @@ object CallManager {
 
     private fun onLocalSdpReady(sdp: SessionDescription) {
         pendingLocalSdp = sdp
-        _uiState.update { it.copy(statusMessage = "Ищем маршруты связи…") }
+        if (!_uiState.value.viaRelay) _uiState.update { it.copy(statusMessage = "Ищем маршруты связи…") }
         val gen = generation
         main.postDelayed({
             if (gen == generation) finalizeLocalSignal("timeout")
@@ -439,9 +629,9 @@ object CallManager {
 
         val isOffer = sdp.type == SessionDescription.Type.OFFER
         val signal = if (isOffer) {
-            SignalingHelper.createOffer(sdp.description, candidates, myIdentity)
+            SignalingHelper.createOffer(sdp.description, candidates, myIdentity, callId)
         } else {
-            SignalingHelper.createAnswer(sdp.description, candidates, myIdentity)
+            SignalingHelper.createAnswer(sdp.description, candidates, myIdentity, callId)
         }
         // Свой сигнал не должен «позвонить» нам же из буфера обмена.
         handledSignals += signal.hashCode()
@@ -452,7 +642,30 @@ object CallManager {
             it.copy(
                 state = if (isOffer) CallState.WAITING_FOR_ANSWER else CallState.CONNECTING,
                 signalToCopy = signal,
-                statusMessage = if (isOffer) "Отправьте приглашение собеседнику" else "Отправьте ответ собеседнику"
+                statusMessage = when {
+                    !isOffer && it.viaRelay -> "Соединяемся…"
+                    !isOffer -> "Отправьте ответ собеседнику"
+                    it.viaRelay -> "Вызываем…"
+                    else -> "Отправьте приглашение собеседнику"
+                }
+            )
+        }
+
+        // Автоматическая доставка через релеи; ручная отправка остаётся запасным путём.
+        if (isOffer) {
+            startResend(
+                CallMessage.OFFER, signal, OFFER_RESEND_ATTEMPTS, OFFER_RESEND_MS,
+                done = { state != CallState.WAITING_FOR_ANSWER || _uiState.value.remoteRinging },
+                onExhausted = {
+                    _uiState.update {
+                        it.copy(peerUnreachable = true, statusMessage = "Абонент не в сети")
+                    }
+                }
+            )
+        } else {
+            startResend(
+                CallMessage.ANSWER, signal, ANSWER_RESEND_ATTEMPTS, ANSWER_RESEND_MS,
+                done = { state != CallState.CONNECTING }
             )
         }
     }
@@ -475,6 +688,8 @@ object CallManager {
         when (newState) {
             PeerConnection.PeerConnectionState.CONNECTED -> {
                 val first = _uiState.value.connectedAt == 0L
+                stopRingback()
+                resendJob?.cancel()
                 _uiState.update {
                     it.copy(
                         state = CallState.CONNECTED,
@@ -569,6 +784,14 @@ object CallManager {
         generation++
         statsJob?.cancel()
         statsJob = null
+        resendJob?.cancel()
+        resendJob = null
+        stopRingback()
+        if (callId.isNotBlank()) {
+            finishedCallIds += callId
+            if (finishedCallIds.size > 200) finishedCallIds.iterator().let { it.next(); it.remove() }
+            callId = ""
+        }
         val manager = pcm
         pcm = null
         if (manager != null) {
@@ -614,6 +837,7 @@ object CallManager {
     private fun fail(message: String) {
         Log.e(TAG, message)
         val prev = _uiState.value
+        if (prev.state.isActive) sendToPeer(CallMessage.BYE)
         releaseResources(DisconnectCause.LOCAL, graceful = false)
         showFailure(prev.contactName, prev.contactCode, message)
     }
@@ -661,10 +885,7 @@ object CallManager {
             main.post {
                 when {
                     state == CallState.RINGING -> declineIncoming()
-                    state.isActive -> {
-                        pcm?.sendControl(MSG_BYE)
-                        finish(DisconnectCause.LOCAL, "Звонок завершён", graceful = true)
-                    }
+                    state.isActive -> endByUser()
                 }
             }
         }

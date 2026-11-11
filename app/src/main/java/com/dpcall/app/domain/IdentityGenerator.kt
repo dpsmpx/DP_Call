@@ -1,48 +1,42 @@
 package com.dpcall.app.domain
 
+import com.dpcall.app.signaling.relay.RelayCrypto
 import java.security.SecureRandom
 
 /**
- * Генерирует криптостойкий уникальный идентификатор.
+ * Ключи пользователя.
  *
- * 16 байт случайных данных → Base32 (Crockford) → 26 символов.
- * Алфавит без неоднозначных символов (0/O, 1/I/L).
+ * Код, которым обмениваются собеседники, — это публичный ключ secp256k1
+ * (32 байта, x-only) в Crockford Base32: 52 символа. Секретный ключ не покидает
+ * устройство. По коду можно зашифровать вызов для его владельца и убедиться,
+ * что входящий вызов действительно от этого контакта.
  */
+class IdentityKeys(val secret: ByteArray, val public: ByteArray) {
+    val code: String = Base32.encode(public)
+    val identity: Identity get() = Identity(code)
+}
+
 object IdentityGenerator {
-
-    // Crockford Base32 (без I, L, O, U)
-    private const val ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-    private const val BYTE_LENGTH = 16 // 128 bit
-
+    const val CODE_LENGTH = 52
     private val secureRandom = SecureRandom()
 
-    fun generate(): Identity {
-        val bytes = ByteArray(BYTE_LENGTH)
-        secureRandom.nextBytes(bytes)
-        val encoded = encodeBase32(bytes)
-        return Identity(encoded)
+    fun generate(): IdentityKeys {
+        while (true) {
+            val secret = ByteArray(32).also { secureRandom.nextBytes(it) }
+            val public = RelayCrypto.publicKeyOrNull(secret) ?: continue
+            return IdentityKeys(secret, public)
+        }
     }
 
-    private fun encodeBase32(data: ByteArray): String {
-        val result = StringBuilder()
-        var buffer = 0
-        var bitsLeft = 0
+    fun fromSecret(secret: ByteArray): IdentityKeys? =
+        RelayCrypto.publicKeyOrNull(secret)?.let { IdentityKeys(secret, it) }
 
-        for (byte in data) {
-            buffer = (buffer shl 8) or (byte.toInt() and 0xFF)
-            bitsLeft += 8
-            while (bitsLeft >= 5) {
-                val index = (buffer shr (bitsLeft - 5)) and 0x1F
-                result.append(ALPHABET[index])
-                bitsLeft -= 5
-            }
-        }
-
-        if (bitsLeft > 0) {
-            val index = (buffer shl (5 - bitsLeft)) and 0x1F
-            result.append(ALPHABET[index])
-        }
-
-        return result.toString()
+    /** Публичный ключ из кода или null, если это не корректный код нового формата. */
+    fun publicKeyFromCode(code: String): ByteArray? {
+        val cleaned = code.trim().uppercase()
+        if (cleaned.length != CODE_LENGTH) return null
+        val bytes = Base32.decode(cleaned) ?: return null
+        if (bytes.size != 32 || Base32.encode(bytes) != cleaned) return null
+        return bytes.takeIf { RelayCrypto.isValidPublicKey(it) }
     }
 }

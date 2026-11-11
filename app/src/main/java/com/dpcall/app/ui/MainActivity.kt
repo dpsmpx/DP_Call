@@ -22,6 +22,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.dpcall.app.call.CallManager
+import com.dpcall.app.call.ListenService
+import com.dpcall.app.call.RelaySignaling
 import com.dpcall.app.call.SignalResult
 import com.dpcall.app.signaling.SignalCodec
 import com.dpcall.app.ui.call.CallScreen
@@ -88,6 +90,13 @@ class MainActivity : ComponentActivity() {
             }
         }
         handleIntent(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // С экрана запуск фонового сервиса всегда разрешён — даже если из фона не удалось.
+        ListenService.sync(this)
+        RelaySignaling.reconnectNow()
     }
 
     override fun onNewIntent(intent: Intent) {

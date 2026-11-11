@@ -7,7 +7,7 @@ DP_Call/
 │       ├── call/          # CallManager, CallService, TelecomBridge, notifications
 │       ├── data/          # DataStore repositories
 │       ├── domain/        # Identity, Contact
-│       ├── signaling/     # DPCALL1 codec
+│       ├── signaling/     # DPCALL1 codec; relay/ — Nostr signaling
 │       ├── webrtc/        # PeerConnection, audio processing and routing
 │       ├── ui/            # Compose screens
 │       └── util/

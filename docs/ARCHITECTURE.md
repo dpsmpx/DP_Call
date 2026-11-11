@@ -2,19 +2,22 @@
 
 ## Overview
 
-Pure P2P voice calls over WebRTC. No signaling server. Identity is a local Crockford Base32 code.
-SDP Offer/Answer are exchanged manually (DPCALL1 format) through any messenger: share sheet,
-clipboard pickup or manual paste.
+Pure P2P voice calls over WebRTC. No servers of our own. Identity is a secp256k1 key pair; the
+shareable code is the public key (Crockford Base32). SDP Offer/Answer (DPCALL1 format) travel
+end-to-end encrypted through public Nostr relays (see ADR-002); manual exchange through any
+messenger remains as a fallback.
 
 ## Layers
 
 ```
 ui/          Compose screens (Home, Call), MainActivity
 call/        CallManager (process-wide call engine), CallService (foreground service +
-             notifications), TelecomBridge (system Telecom), share target, notification actions
+             notifications), TelecomBridge (system Telecom), RelaySignaling + ListenService
+             (background reachability), share target, notification actions
 domain/      Identity, Contact
 data/        DataStore repositories
 signaling/   DPCALL1 encode/decode/extract
+signaling/relay/  Nostr events, envelope encryption, relay pool (Android-free, JVM-testable)
 webrtc/      PeerConnectionManager, audio processing, audio routing
 ```
 
@@ -25,19 +28,20 @@ all drive the same object and observe one `StateFlow<CallUiState>`.
 MainActivity / CallScreen ─┐
 CallService (notification) ─┼─▶ CallManager ─▶ PeerConnectionManager (WebRTC)
 TelecomBridge (headset)   ─┘         │
-SignalReceiverActivity (share) ──────┘
+SignalReceiverActivity (share) ──────┤
+RelaySignaling (Nostr relays) ───────┘
 ```
 
 ## Call flow
 
-1. A creates Offer → shares the DPCALL1.O.* string
-2. B receives it (Share → DP Call, clipboard, or paste) → state RINGING:
-   CallStyle notification with Accept / Decline, full-screen intent on a locked device
-3. B accepts → Answer is created → B shares DPCALL1.A.* back
-4. A applies the Answer (auto-picked from clipboard / share) → ICE → CONNECTED
+1. A creates Offer → `offer` message to B through the relays (resent until acknowledged)
+2. B's `ListenService` keeps relay connections open → state RINGING: CallStyle notification
+   with Accept / Decline, full-screen intent on a locked device; B replies `ringing`
+3. B accepts → Answer is created → `answer` message back to A
+4. A applies the Answer → ICE → CONNECTED
 
-There is no push channel: an incoming call can only start when the Offer reaches the device
-through the user. A future signaling transport would plug into `CallManager.handleSignal`.
+`reject`, `busy`, `cancel` and `bye` cover the other outcomes. If B is unreachable, A can still
+send the DPCALL1 string manually (share sheet, clipboard pickup or paste).
 
 ## Background and system integration
 
