@@ -1,6 +1,8 @@
 package com.dpcall.app.webrtc
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.dpcall.app.signaling.SignalingHelper
 import com.dpcall.app.signaling.SignalType
@@ -18,7 +20,9 @@ data class CallUiState(
     val contactCode: String = "",
     val signalToCopy: String? = null,
     val isMuted: Boolean = false,
+    val isSpeakerOn: Boolean = false,
     val errorMessage: String? = null,
+    val statusMessage: String = "",
     val connectionState: String = ""
 )
 
@@ -29,14 +33,25 @@ class CallController(
 ) {
     companion object {
         private const val TAG = "CallController"
+        private const val ICE_GATHER_TIMEOUT_MS = 8_000L
     }
 
     private var pcm: PeerConnectionManager? = null
+    private val audio = AudioCallManager(context)
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private var pendingLocalSdp: SessionDescription? = null
+    private var iceGatherTimeout: Runnable? = null
+    private var signalFinalized = false
+
     private val _uiState = MutableStateFlow(CallUiState())
     val uiState: StateFlow<CallUiState> = _uiState.asStateFlow()
 
     fun startOutgoing(contactName: String, contactCode: String) {
-        if (_uiState.value.state != CallState.IDLE) return
+        if (_uiState.value.state != CallState.IDLE && _uiState.value.state != CallState.FAILED) return
+
+        resetInternal()
+        audio.start()
 
         _uiState.update {
             it.copy(
@@ -44,7 +59,10 @@ class CallController(
                 contactName = contactName,
                 contactCode = contactCode,
                 signalToCopy = null,
-                errorMessage = null
+                errorMessage = null,
+                statusMessage = "Создаём Offer…",
+                isMuted = false,
+                isSpeakerOn = false
             )
         }
 
@@ -54,29 +72,16 @@ class CallController(
         manager.createPeerConnection(
             onIceCandidate = {},
             onConnectionChange = { handleConnectionChange(it) },
-            onIceGatheringComplete = {}
+            onIceGatheringComplete = { onIceGatheringComplete() }
         )
 
         manager.createOffer(
             onSuccess = { sdp ->
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    val candidates = manager.getCollectedCandidates().map {
-                        "${it.sdpMid}|${it.sdpMLineIndex}|${it.sdp}"
-                    }
-                    val offerString = SignalingHelper.createOffer(
-                        sdp = sdp.description,
-                        candidates = candidates,
-                        myIdentity = myIdentity
-                    )
-                    _uiState.update {
-                        it.copy(
-                            state = CallState.WAITING_FOR_ANSWER,
-                            signalToCopy = offerString
-                        )
-                    }
-                }, 1500)
+                pendingLocalSdp = sdp
+                _uiState.update { it.copy(statusMessage = "Сбор ICE-кандидатов…") }
+                scheduleIceTimeout()
             },
-            onError = { fail(it) }
+            onError = { fail(humanizeError(it, "Не удалось создать Offer")) }
         )
     }
 
@@ -84,40 +89,48 @@ class CallController(
         if (_uiState.value.state != CallState.WAITING_FOR_ANSWER) return
 
         val decoded = SignalingHelper.tryParse(answerString).getOrElse {
-            fail(it.message ?: "Неверный Answer")
+            fail(it.message ?: "Не удалось разобрать Answer. Проверьте, что скопировали строку целиком.")
             return
         }
         if (decoded.type != SignalType.ANSWER) {
-            fail("Ожидался Answer, получен ${decoded.type}")
+            fail("Ожидался Answer (DPCALL1.A…), получен ${decoded.type.name}")
             return
         }
 
-        _uiState.update { it.copy(state = CallState.CONNECTING, signalToCopy = null) }
+        _uiState.update {
+            it.copy(
+                state = CallState.CONNECTING,
+                signalToCopy = null,
+                statusMessage = "Применяем Answer…",
+                errorMessage = null
+            )
+        }
 
-        val remoteSdp = SessionDescription(
-            SessionDescription.Type.ANSWER,
-            decoded.payload.sdp
-        )
+        val remoteSdp = SessionDescription(SessionDescription.Type.ANSWER, decoded.payload.sdp)
         pcm?.setRemoteDescription(
             sdp = remoteSdp,
             onSuccess = {
                 decoded.payload.candidates.forEach { parseAndAddCandidate(it) }
+                _uiState.update { it.copy(statusMessage = "Соединяемся…") }
             },
-            onError = { fail(it) }
+            onError = { fail(humanizeError(it, "Не удалось применить Answer")) }
         )
     }
 
     fun acceptIncoming(offerString: String, contactName: String = "Собеседник") {
-        if (_uiState.value.state != CallState.IDLE) return
+        if (_uiState.value.state != CallState.IDLE && _uiState.value.state != CallState.FAILED) return
 
         val decoded = SignalingHelper.tryParse(offerString).getOrElse {
-            fail(it.message ?: "Неверный Offer")
+            fail(it.message ?: "Не удалось разобрать Offer. Проверьте строку.")
             return
         }
         if (decoded.type != SignalType.OFFER) {
-            fail("Ожидался Offer, получен ${decoded.type}")
+            fail("Ожидался Offer (DPCALL1.O…), получен ${decoded.type.name}")
             return
         }
+
+        resetInternal()
+        audio.start()
 
         val remoteIdentity = decoded.payload.identity
         _uiState.update {
@@ -125,7 +138,10 @@ class CallController(
                 state = CallState.CREATING_ANSWER,
                 contactName = contactName,
                 contactCode = remoteIdentity ?: "",
-                errorMessage = null
+                errorMessage = null,
+                statusMessage = "Создаём Answer…",
+                isMuted = false,
+                isSpeakerOn = false
             )
         }
 
@@ -135,42 +151,24 @@ class CallController(
         manager.createPeerConnection(
             onIceCandidate = {},
             onConnectionChange = { handleConnectionChange(it) },
-            onIceGatheringComplete = {}
+            onIceGatheringComplete = { onIceGatheringComplete() }
         )
 
-        val remoteSdp = SessionDescription(
-            SessionDescription.Type.OFFER,
-            decoded.payload.sdp
-        )
-
+        val remoteSdp = SessionDescription(SessionDescription.Type.OFFER, decoded.payload.sdp)
         manager.setRemoteDescription(
             sdp = remoteSdp,
             onSuccess = {
                 decoded.payload.candidates.forEach { parseAndAddCandidate(it) }
-
                 manager.createAnswer(
                     onSuccess = { answerSdp ->
-                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                            val candidates = manager.getCollectedCandidates().map {
-                                "${it.sdpMid}|${it.sdpMLineIndex}|${it.sdp}"
-                            }
-                            val answerString = SignalingHelper.createAnswer(
-                                sdp = answerSdp.description,
-                                candidates = candidates,
-                                myIdentity = myIdentity
-                            )
-                            _uiState.update {
-                                it.copy(
-                                    state = CallState.CONNECTING,
-                                    signalToCopy = answerString
-                                )
-                            }
-                        }, 1500)
+                        pendingLocalSdp = answerSdp
+                        _uiState.update { it.copy(statusMessage = "Сбор ICE-кандидатов…") }
+                        scheduleIceTimeout()
                     },
-                    onError = { fail(it) }
+                    onError = { fail(humanizeError(it, "Не удалось создать Answer")) }
                 )
             },
-            onError = { fail(it) }
+            onError = { fail(humanizeError(it, "Не удалось применить Offer")) }
         )
     }
 
@@ -179,46 +177,126 @@ class CallController(
         _uiState.update { it.copy(isMuted = muted) }
     }
 
+    fun setSpeaker(on: Boolean) {
+        audio.setSpeakerphone(on)
+        _uiState.update { it.copy(isSpeakerOn = on) }
+    }
+
     fun hangup() {
+        cancelIceTimeout()
+        audio.stop()
         pcm?.close()
         pcm = null
+        pendingLocalSdp = null
+        signalFinalized = false
         _uiState.update {
-            CallUiState(state = CallState.ENDED, contactName = it.contactName)
+            CallUiState(state = CallState.ENDED, contactName = it.contactName, statusMessage = "Звонок завершён")
         }
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-            _uiState.update { CallUiState() }
-        }, 1500)
+        mainHandler.postDelayed({ _uiState.update { CallUiState() } }, 1200)
     }
 
     fun reset() {
+        cancelIceTimeout()
+        audio.stop()
         pcm?.close()
         pcm = null
+        pendingLocalSdp = null
+        signalFinalized = false
         _uiState.update { CallUiState() }
+    }
+
+    private fun onIceGatheringComplete() {
+        mainHandler.post {
+            Log.d(TAG, "ICE gathering complete")
+            finalizeLocalSignal("ICE ready")
+        }
+    }
+
+    private fun scheduleIceTimeout() {
+        cancelIceTimeout()
+        val r = Runnable {
+            Log.w(TAG, "ICE gather timeout — finalizing with current candidates")
+            finalizeLocalSignal("ICE timeout")
+        }
+        iceGatherTimeout = r
+        mainHandler.postDelayed(r, ICE_GATHER_TIMEOUT_MS)
+    }
+
+    private fun cancelIceTimeout() {
+        iceGatherTimeout?.let { mainHandler.removeCallbacks(it) }
+        iceGatherTimeout = null
+    }
+
+    private fun finalizeLocalSignal(reason: String) {
+        if (signalFinalized) return
+        val sdp = pendingLocalSdp ?: return
+        val manager = pcm ?: return
+        signalFinalized = true
+        cancelIceTimeout()
+
+        val candidates = manager.getCollectedCandidates().map {
+            "${it.sdpMid}|${it.sdpMLineIndex}|${it.sdp}"
+        }
+        Log.d(TAG, "Finalize signal ($reason), candidates=${candidates.size}")
+
+        val isOffer = sdp.type == SessionDescription.Type.OFFER
+        val signal = if (isOffer) {
+            SignalingHelper.createOffer(sdp.description, candidates, myIdentity)
+        } else {
+            SignalingHelper.createAnswer(sdp.description, candidates, myIdentity)
+        }
+
+        _uiState.update {
+            it.copy(
+                state = if (isOffer) CallState.WAITING_FOR_ANSWER else CallState.CONNECTING,
+                signalToCopy = signal,
+                statusMessage = if (isOffer) {
+                    "Скопируйте Offer и отправьте собеседнику"
+                } else {
+                    "Скопируйте Answer и отправьте собеседнику"
+                }
+            )
+        }
     }
 
     private fun handleConnectionChange(state: PeerConnection.PeerConnectionState) {
         Log.d(TAG, "Connection: $state")
-        when (state) {
-            PeerConnection.PeerConnectionState.CONNECTED -> {
-                _uiState.update {
-                    it.copy(
-                        state = CallState.CONNECTED,
-                        signalToCopy = null,
-                        connectionState = "CONNECTED"
-                    )
+        mainHandler.post {
+            when (state) {
+                PeerConnection.PeerConnectionState.CONNECTED -> {
+                    _uiState.update {
+                        it.copy(
+                            state = CallState.CONNECTED,
+                            signalToCopy = null,
+                            connectionState = "CONNECTED",
+                            statusMessage = "На линии",
+                            errorMessage = null
+                        )
+                    }
                 }
-            }
-            PeerConnection.PeerConnectionState.FAILED,
-            PeerConnection.PeerConnectionState.DISCONNECTED -> {
-                if (_uiState.value.state == CallState.CONNECTED ||
-                    _uiState.value.state == CallState.CONNECTING
-                ) {
-                    _uiState.update { it.copy(connectionState = state.name) }
+                PeerConnection.PeerConnectionState.FAILED -> {
+                    fail("Соединение не установлено. Проверьте VPN и сеть, затем попробуйте снова.")
                 }
-            }
-            PeerConnection.PeerConnectionState.CLOSED -> {}
-            else -> {
-                _uiState.update { it.copy(connectionState = state.name) }
+                PeerConnection.PeerConnectionState.DISCONNECTED -> {
+                    if (_uiState.value.state == CallState.CONNECTED) {
+                        _uiState.update {
+                            it.copy(connectionState = "DISCONNECTED", statusMessage = "Связь прервалась…")
+                        }
+                    }
+                }
+                PeerConnection.PeerConnectionState.CLOSED -> {}
+                else -> {
+                    _uiState.update {
+                        it.copy(
+                            connectionState = state.name,
+                            statusMessage = when (state) {
+                                PeerConnection.PeerConnectionState.CONNECTING -> "Соединяемся…"
+                                PeerConnection.PeerConnectionState.NEW -> "Подготовка…"
+                                else -> it.statusMessage
+                            }
+                        )
+                    }
+                }
             }
         }
     }
@@ -237,12 +315,41 @@ class CallController(
         }
     }
 
+    private fun humanizeError(raw: String, fallback: String): String {
+        val lower = raw.lowercase()
+        return when {
+            "permission" in lower || "record" in lower ->
+                "Нет доступа к микрофону. Разрешите в настройках приложения."
+            "network" in lower || "ice" in lower ->
+                "Проблема с сетью. Проверьте VPN и интернет."
+            raw.isBlank() -> fallback
+            else -> "$fallback ($raw)"
+        }
+    }
+
     private fun fail(message: String) {
         Log.e(TAG, message)
+        cancelIceTimeout()
+        audio.stop()
         pcm?.close()
         pcm = null
+        pendingLocalSdp = null
+        signalFinalized = false
         _uiState.update {
-            it.copy(state = CallState.FAILED, errorMessage = message, signalToCopy = null)
+            it.copy(
+                state = CallState.FAILED,
+                errorMessage = message,
+                signalToCopy = null,
+                statusMessage = "Ошибка"
+            )
         }
+    }
+
+    private fun resetInternal() {
+        cancelIceTimeout()
+        pcm?.close()
+        pcm = null
+        pendingLocalSdp = null
+        signalFinalized = false
     }
 }
