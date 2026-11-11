@@ -1,54 +1,192 @@
 package com.dpcall.app.ui
 
 import android.Manifest
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioManager
+import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Scaffold
-import androidx.compose.ui.Modifier
+import androidx.compose.animation.Crossfade
+import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.dpcall.app.call.CallManager
+import com.dpcall.app.call.SignalResult
+import com.dpcall.app.signaling.SignalCodec
+import com.dpcall.app.ui.call.CallScreen
 import com.dpcall.app.ui.home.HomeScreen
 import com.dpcall.app.ui.theme.DPCallTheme
+import com.dpcall.app.webrtc.CallState
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
-    private val permissionLauncher = registerForActivityResult(
+    private val startupPermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { }
 
+    private var pendingMicAction: (() -> Unit)? = null
+    private val micPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val action = pendingMicAction
+        pendingMicAction = null
+        if (granted) {
+            action?.invoke()
+        } else {
+            Toast.makeText(this, "Без доступа к микрофону позвонить не получится", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** Отметка времени содержимого буфера, которое мы уже проверяли. */
+    private var lastClipTimestamp = -1L
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestNeededPermissions()
+        CallManager.init(this)
         enableEdgeToEdge()
+        if (savedInstanceState == null) requestStartupPermissions()
+
         setContent {
             DPCallTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) {
-                    HomeScreen()
+                val call by CallManager.uiState.collectAsStateWithLifecycle()
+                Crossfade(targetState = call.state != CallState.IDLE, label = "screen") { inCall ->
+                    if (inCall) {
+                        CallScreen(
+                            state = call,
+                            onAccept = { withMicPermission { CallManager.acceptIncoming() } },
+                            onMinimize = { moveTaskToBack(true) }
+                        )
+                    } else {
+                        HomeScreen(
+                            onCall = { contact ->
+                                withMicPermission { CallManager.startOutgoing(contact.name, contact.code) }
+                            },
+                            onAnswerOffer = { raw, onResult ->
+                                withMicPermission { onResult(CallManager.handleSignal(raw, autoAccept = true)) }
+                            }
+                        )
+                    }
                 }
+            }
+        }
+
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.CREATED) {
+                CallManager.uiState.collect { applyWindowMode(it.state) }
+            }
+        }
+        handleIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.action == ACTION_ANSWER) {
+            // Действие одноразовое: не повторяем его при пересоздании Activity.
+            intent.action = ACTION_SHOW_CALL
+            if (CallManager.uiState.value.state == CallState.RINGING) {
+                withMicPermission { CallManager.acceptIncoming() }
             }
         }
     }
 
-    private fun requestNeededPermissions() {
-        val needed = mutableListOf<String>()
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            needed += Manifest.permission.RECORD_AUDIO
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Буфер обмена доступен только приложению в фокусе.
+        if (hasFocus) checkClipboardForSignal()
+    }
+
+    /**
+     * Если пользователь скопировал в мессенджере приглашение или ответ и вернулся
+     * в приложение — подхватываем код сами, без ручной вставки.
+     */
+    private fun checkClipboardForSignal() {
+        try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val description = clipboard.primaryClipDescription ?: return
+            if (description.label == CLIP_LABEL) return // это мы сами скопировали
+            val timestamp = description.timestamp
+            if (timestamp == lastClipTimestamp) return
+            lastClipTimestamp = timestamp
+
+            val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString() ?: return
+            if (!SignalCodec.looksLikeSignal(SignalCodec.extract(text) ?: return)) return
+            when (CallManager.handleSignal(text, auto = true)) {
+                SignalResult.AnswerApplied ->
+                    Toast.makeText(this, "Ответ собеседника получен", Toast.LENGTH_SHORT).show()
+                else -> {}
+            }
+        } catch (e: Exception) {
+            // Буфер недоступен — пользователь вставит код вручную.
         }
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                needed += Manifest.permission.BLUETOOTH_CONNECT
+    }
+
+    private fun applyWindowMode(state: CallState) {
+        val ringing = state == CallState.RINGING
+        val active = state.isActive
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(active)
+            setTurnScreenOn(ringing)
+        } else {
+            @Suppress("DEPRECATION")
+            val flags = WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            if (active) window.addFlags(flags) else window.clearFlags(flags)
+        }
+        if (ringing) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        volumeControlStream =
+            if (active && !ringing) AudioManager.STREAM_VOICE_CALL else AudioManager.USE_DEFAULT_STREAM_TYPE
+    }
+
+    private fun withMicPermission(action: () -> Unit) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            action()
+        } else {
+            pendingMicAction = action
+            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    private fun requestStartupPermissions() {
+        val needed = mutableListOf<String>()
+        fun want(permission: String) {
+            if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+                needed += permission
             }
         }
-        if (needed.isNotEmpty()) {
-            permissionLauncher.launch(needed.toTypedArray())
-        }
+        want(Manifest.permission.RECORD_AUDIO)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) want(Manifest.permission.BLUETOOTH_CONNECT)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) want(Manifest.permission.POST_NOTIFICATIONS)
+        if (needed.isNotEmpty()) startupPermissions.launch(needed.toTypedArray())
+    }
+
+    companion object {
+        const val ACTION_ANSWER = "com.dpcall.app.action.ANSWER"
+        const val ACTION_SHOW_CALL = "com.dpcall.app.action.SHOW_CALL"
+
+        /** Метка наших собственных записей в буфере обмена. */
+        const val CLIP_LABEL = "DP Call signal"
     }
 }

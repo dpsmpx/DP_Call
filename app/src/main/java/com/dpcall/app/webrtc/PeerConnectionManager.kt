@@ -1,86 +1,138 @@
 package com.dpcall.app.webrtc
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.util.Log
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
 import org.webrtc.DataChannel
-import org.webrtc.DefaultVideoDecoderFactory
-import org.webrtc.DefaultVideoEncoderFactory
-import org.webrtc.EglBase
+import org.webrtc.ExternalAudioProcessingFactory
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
+import org.webrtc.RTCStatsReport
 import org.webrtc.RtpReceiver
+import org.webrtc.RtpSender
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
+import org.webrtc.audio.JavaAudioDeviceModule
+import java.nio.ByteBuffer
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Обёртка над PeerConnection для голосовых звонков.
- * Только аудио. Видео не создаётся.
+ * Общая на процесс фабрика WebRTC с настроенной обработкой звука.
+ *
+ * Исходящий звук (микрофон): эхоподавление, шумоподавление, автоусиление и
+ * фильтр низких частот из WebRTC Audio Processing.
+ * Входящий звук: [ReceiveNoiseGate] перед воспроизведением.
  */
-class PeerConnectionManager(
-    private val context: Context,
-    private val useTurn: Boolean = true
-) {
-    companion object {
-        private const val TAG = "PeerConnectionManager"
-        private val factoryInitialized = AtomicBoolean(false)
+internal object RtcEngine {
+    private const val TAG = "RtcEngine"
 
-        fun initFactory(context: Context) {
-            if (factoryInitialized.compareAndSet(false, true)) {
-                val options = PeerConnectionFactory.InitializationOptions.builder(context)
-                    .setEnableInternalTracer(false)
-                    .createInitializationOptions()
-                PeerConnectionFactory.initialize(options)
-            }
+    private var factory: PeerConnectionFactory? = null
+    private var processing: ExternalAudioProcessingFactory? = null
+
+    @Synchronized
+    fun factory(context: Context): PeerConnectionFactory {
+        factory?.let { return it }
+        val app = context.applicationContext
+
+        PeerConnectionFactory.initialize(
+            PeerConnectionFactory.InitializationOptions.builder(app)
+                .setEnableInternalTracer(false)
+                .createInitializationOptions()
+        )
+
+        val hardwareAec = JavaAudioDeviceModule.isBuiltInAcousticEchoCancelerSupported()
+        val adm = JavaAudioDeviceModule.builder(app)
+            // Аппаратное эхоподавление, если есть: оно знает акустику устройства.
+            .setUseHardwareAcousticEchoCanceler(hardwareAec)
+            // Шумоподавление — программное (WebRTC NS): стабильное качество на всех устройствах.
+            .setUseHardwareNoiseSuppressor(false)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            .setAudioRecordErrorCallback(object : JavaAudioDeviceModule.AudioRecordErrorCallback {
+                override fun onWebRtcAudioRecordInitError(msg: String?) = Log.e(TAG, "record init: $msg").let {}
+                override fun onWebRtcAudioRecordStartError(
+                    code: JavaAudioDeviceModule.AudioRecordStartErrorCode?,
+                    msg: String?
+                ) = Log.e(TAG, "record start: $code $msg").let {}
+                override fun onWebRtcAudioRecordError(msg: String?) = Log.e(TAG, "record: $msg").let {}
+            })
+            .createAudioDeviceModule()
+
+        val apf = ExternalAudioProcessingFactory().apply {
+            setRenderPreProcessing(ReceiveNoiseGate())
+            setBypassFlagForRenderPre(false)
+            setBypassFlagForCapturePost(true)
         }
+        processing = apf
+
+        val created = PeerConnectionFactory.builder()
+            .setAudioDeviceModule(adm)
+            .setAudioProcessingFactory(apf)
+            .setOptions(PeerConnectionFactory.Options())
+            .createPeerConnectionFactory()
+        // Фабрика держит собственную ссылку на модуль.
+        adm.release()
+        factory = created
+        Log.d(TAG, "Factory created, hardwareAec=$hardwareAec")
+        return created
     }
 
-    private val eglBase: EglBase = EglBase.create()
-    private val factory: PeerConnectionFactory
+    /** Включает/выключает шумоподавление входящего звука на лету. */
+    @Synchronized
+    fun setReceiveNoiseSuppression(enabled: Boolean) {
+        processing?.setBypassFlagForRenderPre(!enabled)
+    }
+}
+
+/** Показатели качества связи за последний интервал опроса. */
+data class LinkStats(val lossPercent: Double, val rttMs: Double?)
+
+/**
+ * Обёртка над PeerConnection для голосовых звонков. Только аудио.
+ *
+ * Помимо звука открывает служебный data channel (согласован заранее, id=0):
+ * по нему передаются «bye» при завершении и состояние микрофона.
+ */
+class PeerConnectionManager(
+    context: Context,
+    private val useTurn: Boolean = true
+) {
+    interface Listener {
+        fun onConnectionChange(state: PeerConnection.PeerConnectionState)
+        fun onIceGatheringComplete()
+        fun onControlMessage(message: String)
+        fun onControlChannelOpen()
+    }
+
+    companion object {
+        private const val TAG = "PeerConnectionManager"
+        private const val CONTROL_CHANNEL = "dpcall-ctl"
+    }
+
+    private val factory = RtcEngine.factory(context)
     private var peerConnection: PeerConnection? = null
     private var localAudioTrack: AudioTrack? = null
     private var audioSource: AudioSource? = null
+    private var audioSender: RtpSender? = null
+    private var controlChannel: DataChannel? = null
+    private var micEnabled = true
+    private var trackGeneration = 0
 
     private val collectedCandidates = CopyOnWriteArrayList<IceCandidate>()
-    private var onIceCandidate: ((IceCandidate) -> Unit)? = null
-    private var onConnectionChange: ((PeerConnection.PeerConnectionState) -> Unit)? = null
-    private var onIceGatheringComplete: (() -> Unit)? = null
 
-    init {
-        initFactory(context)
+    private var lastPacketsLost = 0L
+    private var lastPacketsReceived = 0L
 
-        val encoderFactory = DefaultVideoEncoderFactory(
-            eglBase.eglBaseContext,
-            true,
-            true
-        )
-        val decoderFactory = DefaultVideoDecoderFactory(eglBase.eglBaseContext)
-
-        factory = PeerConnectionFactory.builder()
-            .setVideoEncoderFactory(encoderFactory)
-            .setVideoDecoderFactory(decoderFactory)
-            .setOptions(PeerConnectionFactory.Options().apply {
-                disableEncryption = false
-                disableNetworkMonitor = false
-            })
-            .createPeerConnectionFactory()
-    }
-
-    fun createPeerConnection(
-        onIceCandidate: (IceCandidate) -> Unit = {},
-        onConnectionChange: (PeerConnection.PeerConnectionState) -> Unit = {},
-        onIceGatheringComplete: () -> Unit = {}
-    ) {
-        this.onIceCandidate = onIceCandidate
-        this.onConnectionChange = onConnectionChange
-        this.onIceGatheringComplete = onIceGatheringComplete
-
+    fun createPeerConnection(listener: Listener, noiseSuppression: Boolean) {
         val rtcConfig = PeerConnection.RTCConfiguration(IceServerConfig.createIceServers(useTurn)).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_ONCE
@@ -89,33 +141,25 @@ class PeerConnectionManager(
             rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
         }
 
-        peerConnection = factory.createPeerConnection(rtcConfig, object : PeerConnection.Observer {
-            override fun onSignalingChange(state: PeerConnection.SignalingState?) {
-                Log.d(TAG, "onSignalingChange: $state")
-            }
-
+        val pc = factory.createPeerConnection(rtcConfig, object : PeerConnection.Observer {
+            override fun onSignalingChange(state: PeerConnection.SignalingState?) {}
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
                 Log.d(TAG, "onIceConnectionChange: $state")
             }
 
             override fun onConnectionChange(newState: PeerConnection.PeerConnectionState?) {
                 Log.d(TAG, "onConnectionChange: $newState")
-                newState?.let { onConnectionChange(it) }
+                newState?.let { listener.onConnectionChange(it) }
             }
 
             override fun onIceConnectionReceivingChange(receiving: Boolean) {}
 
             override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {
-                Log.d(TAG, "onIceGatheringChange: $state")
-                if (state == PeerConnection.IceGatheringState.COMPLETE) {
-                    onIceGatheringComplete()
-                }
+                if (state == PeerConnection.IceGatheringState.COMPLETE) listener.onIceGatheringComplete()
             }
 
             override fun onIceCandidate(candidate: IceCandidate?) {
-                candidate ?: return
-                collectedCandidates += candidate
-                onIceCandidate(candidate)
+                candidate?.let { collectedCandidates += it }
             }
 
             override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {}
@@ -123,73 +167,110 @@ class PeerConnectionManager(
             override fun onRemoveStream(stream: MediaStream?) {}
             override fun onDataChannel(dc: DataChannel?) {}
             override fun onRenegotiationNeeded() {}
+            override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {}
+        }) ?: throw IllegalStateException("PeerConnection не создан")
+        peerConnection = pc
 
-            override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {
-                Log.d(TAG, "onAddTrack: ${receiver?.track()?.kind()}")
+        RtcEngine.setReceiveNoiseSuppression(noiseSuppression)
+        val (source, track) = createLocalAudio(noiseSuppression)
+        audioSource = source
+        localAudioTrack = track
+        audioSender = pc.addTrack(track, listOf("dpcall"))
+
+        try {
+            val init = DataChannel.Init().apply {
+                negotiated = true
+                id = 0
+                ordered = true
             }
-        })
+            controlChannel = pc.createDataChannel(CONTROL_CHANNEL, init)?.also { dc ->
+                dc.registerObserver(object : DataChannel.Observer {
+                    override fun onBufferedAmountChange(previousAmount: Long) {}
+                    override fun onStateChange() {
+                        if (controlChannel?.state() == DataChannel.State.OPEN) listener.onControlChannelOpen()
+                    }
 
-        val audioConstraints = MediaConstraints()
-        audioSource = factory.createAudioSource(audioConstraints)
-        localAudioTrack = factory.createAudioTrack("AUDIO_LOCAL", audioSource).apply {
-            setEnabled(true)
+                    override fun onMessage(buffer: DataChannel.Buffer) {
+                        if (buffer.binary) return
+                        val bytes = ByteArray(buffer.data.remaining())
+                        buffer.data.get(bytes)
+                        listener.onControlMessage(String(bytes, Charsets.UTF_8))
+                    }
+                })
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Control channel unavailable", e)
         }
-        peerConnection?.addTrack(localAudioTrack, listOf("stream1"))
     }
 
-    fun createOffer(onSuccess: (SessionDescription) -> Unit, onError: (String) -> Unit) {
+    private fun createLocalAudio(noiseSuppression: Boolean): Pair<AudioSource, AudioTrack> {
+        val constraints = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", noiseSuppression.toString()))
+        }
+        val source = factory.createAudioSource(constraints)
+        val track = factory.createAudioTrack("dpcall-audio-${trackGeneration++}", source)
+        track.setEnabled(micEnabled)
+        return source to track
+    }
+
+    /**
+     * Переключает шумоподавление во время звонка: входящее — сразу, исходящее —
+     * заменой аудиотрека (без пересогласования SDP).
+     */
+    fun setNoiseSuppression(enabled: Boolean) {
+        RtcEngine.setReceiveNoiseSuppression(enabled)
+        val sender = audioSender ?: return
+        if (peerConnection == null) return
+        try {
+            val oldTrack = localAudioTrack
+            val oldSource = audioSource
+            val (source, track) = createLocalAudio(enabled)
+            if (sender.setTrack(track, false)) {
+                audioSource = source
+                localAudioTrack = track
+                oldTrack?.dispose()
+                oldSource?.dispose()
+            } else {
+                track.dispose()
+                source.dispose()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to switch noise suppression", e)
+        }
+    }
+
+    fun createOffer(onSuccess: (SessionDescription) -> Unit, onError: (String) -> Unit) =
+        createSdp(isOffer = true, onSuccess, onError)
+
+    fun createAnswer(onSuccess: (SessionDescription) -> Unit, onError: (String) -> Unit) =
+        createSdp(isOffer = false, onSuccess, onError)
+
+    private fun createSdp(isOffer: Boolean, onSuccess: (SessionDescription) -> Unit, onError: (String) -> Unit) {
+        val pc = peerConnection ?: return onError("Нет соединения")
         val constraints = MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
         }
-        peerConnection?.createOffer(object : SdpObserver {
+        val observer = object : SimpleSdpObserver(onError) {
             override fun onCreateSuccess(sdp: SessionDescription?) {
-                sdp ?: return onError("Empty offer")
-                peerConnection?.setLocalDescription(object : SdpObserver {
+                sdp ?: return onError("Пустой SDP")
+                peerConnection?.setLocalDescription(object : SimpleSdpObserver(onError) {
                     override fun onSetSuccess() = onSuccess(sdp)
-                    override fun onSetFailure(error: String?) = onError(error ?: "setLocalDescription failed")
-                    override fun onCreateSuccess(p0: SessionDescription?) {}
-                    override fun onCreateFailure(p0: String?) {}
                 }, sdp)
             }
-            override fun onCreateFailure(error: String?) = onError(error ?: "createOffer failed")
-            override fun onSetSuccess() {}
-            override fun onSetFailure(error: String?) {}
-        }, constraints)
-    }
-
-    fun createAnswer(onSuccess: (SessionDescription) -> Unit, onError: (String) -> Unit) {
-        val constraints = MediaConstraints().apply {
-            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
         }
-        peerConnection?.createAnswer(object : SdpObserver {
-            override fun onCreateSuccess(sdp: SessionDescription?) {
-                sdp ?: return onError("Empty answer")
-                peerConnection?.setLocalDescription(object : SdpObserver {
-                    override fun onSetSuccess() = onSuccess(sdp)
-                    override fun onSetFailure(error: String?) = onError(error ?: "setLocalDescription failed")
-                    override fun onCreateSuccess(p0: SessionDescription?) {}
-                    override fun onCreateFailure(p0: String?) {}
-                }, sdp)
-            }
-            override fun onCreateFailure(error: String?) = onError(error ?: "createAnswer failed")
-            override fun onSetSuccess() {}
-            override fun onSetFailure(error: String?) {}
-        }, constraints)
+        if (isOffer) pc.createOffer(observer, constraints) else pc.createAnswer(observer, constraints)
     }
 
-    fun setRemoteDescription(
-        sdp: SessionDescription,
-        onSuccess: () -> Unit,
-        onError: (String) -> Unit
-    ) {
-        peerConnection?.setRemoteDescription(object : SdpObserver {
+    fun setRemoteDescription(sdp: SessionDescription, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        val pc = peerConnection ?: return onError("Нет соединения")
+        val tuned = SessionDescription(sdp.type, SdpTuning.tuneOpus(sdp.description))
+        pc.setRemoteDescription(object : SimpleSdpObserver(onError) {
             override fun onSetSuccess() = onSuccess()
-            override fun onSetFailure(error: String?) = onError(error ?: "setRemoteDescription failed")
-            override fun onCreateSuccess(p0: SessionDescription?) {}
-            override fun onCreateFailure(p0: String?) {}
-        }, sdp)
+        }, tuned)
     }
 
     fun addIceCandidate(candidate: IceCandidate) {
@@ -199,26 +280,96 @@ class PeerConnectionManager(
     fun getCollectedCandidates(): List<IceCandidate> = collectedCandidates.toList()
 
     fun setMicrophoneEnabled(enabled: Boolean) {
+        micEnabled = enabled
         localAudioTrack?.setEnabled(enabled)
     }
 
-    fun isMicrophoneEnabled(): Boolean = localAudioTrack?.enabled() ?: false
+    /** Включает/выключает воспроизведение собеседника (удержание). */
+    fun setRemoteAudioEnabled(enabled: Boolean) {
+        try {
+            peerConnection?.receivers?.forEach { it.track()?.setEnabled(enabled) }
+        } catch (e: Exception) {
+            Log.w(TAG, "setRemoteAudioEnabled failed", e)
+        }
+    }
+
+    fun sendControl(message: String): Boolean {
+        val dc = controlChannel ?: return false
+        return try {
+            dc.state() == DataChannel.State.OPEN &&
+                dc.send(DataChannel.Buffer(ByteBuffer.wrap(message.toByteArray(Charsets.UTF_8)), false))
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Асинхронно считает потери и задержку с момента прошлого вызова. */
+    fun pollStats(onResult: (LinkStats) -> Unit) {
+        val pc = peerConnection ?: return
+        pc.getStats { report: RTCStatsReport ->
+            var lost = 0L
+            var received = 0L
+            var rtt: Double? = null
+            for (stats in report.statsMap.values) {
+                val m = stats.members
+                when (stats.type) {
+                    "inbound-rtp" -> if (m["kind"] == "audio") {
+                        lost += (m["packetsLost"] as? Number)?.toLong() ?: 0L
+                        received += (m["packetsReceived"] as? Number)?.toLong() ?: 0L
+                    }
+                    "candidate-pair" -> if (m["nominated"] == true) {
+                        (m["currentRoundTripTime"] as? Number)?.let { rtt = it.toDouble() * 1000.0 }
+                    }
+                }
+            }
+            val dLost = (lost - lastPacketsLost).coerceAtLeast(0)
+            val dReceived = (received - lastPacketsReceived).coerceAtLeast(0)
+            lastPacketsLost = lost
+            lastPacketsReceived = received
+            val total = dLost + dReceived
+            val loss = if (total > 0) dLost * 100.0 / total else if (received > 0) 100.0 else 0.0
+            onResult(LinkStats(lossPercent = loss, rttMs = rtt))
+        }
+    }
 
     fun close() {
-        localAudioTrack?.setEnabled(false)
-        localAudioTrack?.dispose()
-        localAudioTrack = null
-        audioSource?.dispose()
-        audioSource = null
-        peerConnection?.close()
-        peerConnection?.dispose()
+        val pc = peerConnection
         peerConnection = null
+        audioSender = null
+        try {
+            controlChannel?.let {
+                it.unregisterObserver()
+                it.close()
+                it.dispose()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "control channel close", e)
+        }
+        controlChannel = null
+        try {
+            pc?.dispose()
+        } catch (e: Exception) {
+            Log.w(TAG, "pc dispose", e)
+        }
+        try {
+            localAudioTrack?.dispose()
+        } catch (e: Exception) {
+            Log.w(TAG, "track dispose", e)
+        }
+        localAudioTrack = null
+        try {
+            audioSource?.dispose()
+        } catch (e: Exception) {
+            Log.w(TAG, "source dispose", e)
+        }
+        audioSource = null
         collectedCandidates.clear()
     }
 
-    fun dispose() {
-        close()
-        factory.dispose()
-        eglBase.release()
+    private open class SimpleSdpObserver(private val onError: (String) -> Unit) : SdpObserver {
+        override fun onCreateSuccess(sdp: SessionDescription?) {}
+        override fun onSetSuccess() {}
+        override fun onCreateFailure(error: String?) = onError(error ?: "create failed")
+        override fun onSetFailure(error: String?) = onError(error ?: "set failed")
     }
 }

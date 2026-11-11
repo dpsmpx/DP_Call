@@ -3,8 +3,19 @@ package com.dpcall.app.ui.call
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.os.SystemClock
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,220 +24,568 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Headset
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.PhoneInTalk
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.dpcall.app.webrtc.CallController
+import com.dpcall.app.call.CallManager
+import com.dpcall.app.call.CallUiState
+import com.dpcall.app.call.LinkQuality
+import com.dpcall.app.call.SignalResult
+import com.dpcall.app.ui.MainActivity
+import com.dpcall.app.ui.components.Avatar
+import com.dpcall.app.ui.components.shareText
+import com.dpcall.app.webrtc.AudioRoute
 import com.dpcall.app.webrtc.CallState
+import kotlinx.coroutines.delay
+
+private val AcceptGreen = Color(0xFF2E9E5B)
+private val DeclineRed = Color(0xFFD93B3B)
 
 @Composable
-fun CallScreen(controller: CallController, onClose: () -> Unit) {
-    val state by controller.uiState.collectAsState()
-    val context = LocalContext.current
-    var pasteInput by remember { mutableStateOf("") }
-    var pasteError by remember { mutableStateOf<String?>(null) }
+fun CallScreen(state: CallUiState, onAccept: () -> Unit, onMinimize: () -> Unit) {
+    val finished = state.state == CallState.ENDED || state.state == CallState.FAILED
 
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(modifier = Modifier.height(32.dp))
-            Text(text = state.contactName.ifBlank { "Звонок" }, style = MaterialTheme.typography.headlineMedium)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = state.statusMessage.ifBlank { statusText(state.state) },
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
+    // «Назад» во время звонка сворачивает приложение — звонок продолжается.
+    BackHandler { if (finished) CallManager.dismiss() else onMinimize() }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                        MaterialTheme.colorScheme.surface,
+                        MaterialTheme.colorScheme.surface
+                    )
+                )
             )
-            if (state.connectionState.isNotBlank() && state.state in listOf(CallState.CONNECTING, CallState.CONNECTED)) {
-                Text(text = state.connectionState, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            state.errorMessage?.let { err ->
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(text = err, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium)
-            }
-        }
+    ) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .systemBarsPadding()
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            TopBar(state, finished, onMinimize)
 
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-            when (state.state) {
-                CallState.CREATING_OFFER, CallState.CREATING_ANSWER -> {
-                    CircularProgressIndicator()
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(state.statusMessage.ifBlank { "Подготовка…" })
-                }
-                CallState.WAITING_FOR_ANSWER -> {
-                    Text(
-                        text = "1. Скопируйте Offer и отправьте собеседнику\n2. Вставьте его Answer ниже",
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    state.signalToCopy?.let { signal ->
-                        OutlinedButton(
-                            onClick = {
-                                copyToClipboard(context, signal)
-                                Toast.makeText(context, "Offer скопирован", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.ContentCopy, null)
-                            Spacer(modifier = Modifier.size(8.dp))
-                            Text("Скопировать Offer")
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(24.dp))
-                    OutlinedTextField(
-                        value = pasteInput,
-                        onValueChange = { pasteInput = it; pasteError = null },
-                        label = { Text("Answer от собеседника") },
-                        modifier = Modifier.fillMaxWidth(),
-                        maxLines = 3,
-                        isError = pasteError != null,
-                        supportingText = pasteError?.let { { Text(it) } }
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = {
-                                val clip = (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-                                    .primaryClip?.getItemAt(0)?.coerceToText(context)?.toString()
-                                if (!clip.isNullOrBlank()) { pasteInput = clip; pasteError = null }
-                                else pasteError = "Буфер обмена пуст"
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.ContentPaste, null)
-                            Spacer(modifier = Modifier.size(4.dp))
-                            Text("Вставить")
-                        }
-                        Button(
-                            onClick = {
-                                when {
-                                    pasteInput.isBlank() -> pasteError = "Вставьте Answer"
-                                    !pasteInput.contains("DPCALL") -> pasteError = "Это не похоже на код DP Call"
-                                    else -> { pasteError = null; controller.applyRemoteAnswer(pasteInput) }
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                            enabled = pasteInput.isNotBlank()
-                        ) { Text("Применить") }
-                    }
-                }
-                CallState.CONNECTING -> {
-                    if (state.signalToCopy != null) {
-                        Text(text = "Скопируйте Answer и отправьте собеседнику.\nЗатем дождитесь соединения.", textAlign = TextAlign.Center)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        OutlinedButton(
-                            onClick = {
-                                copyToClipboard(context, state.signalToCopy!!)
-                                Toast.makeText(context, "Answer скопирован", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.ContentCopy, null)
-                            Spacer(modifier = Modifier.size(8.dp))
-                            Text("Скопировать Answer")
-                        }
-                        Spacer(modifier = Modifier.height(16.dp))
-                    }
-                    CircularProgressIndicator()
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(state.statusMessage.ifBlank { "Соединяемся…" })
-                }
-                CallState.CONNECTED -> Text(text = "Разговор", style = MaterialTheme.typography.titleLarge)
-                CallState.FAILED -> Button(onClick = onClose) { Text("Закрыть") }
-                CallState.ENDED -> Text("Звонок завершён")
-                CallState.IDLE -> {}
-            }
-        }
-
-        if (state.state !in listOf(CallState.IDLE, CallState.ENDED, CallState.FAILED)) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                FilledIconButton(
-                    onClick = { controller.setMuted(!state.isMuted) },
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = if (state.isMuted) MaterialTheme.colorScheme.errorContainer
-                        else MaterialTheme.colorScheme.secondaryContainer
-                    ),
-                    modifier = Modifier.size(56.dp)
-                ) {
-                    Icon(if (state.isMuted) Icons.Default.MicOff else Icons.Default.Mic, "Микрофон", Modifier.size(26.dp))
+                Spacer(Modifier.height(24.dp))
+                PulsingAvatar(
+                    name = state.contactName.ifBlank { "?" },
+                    seed = state.contactCode,
+                    pulsing = state.state == CallState.RINGING ||
+                        state.state == CallState.CONNECTING || state.isReconnecting
+                )
+                Spacer(Modifier.height(20.dp))
+                Text(
+                    state.contactName.ifBlank { "Звонок" },
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(6.dp))
+                StatusLine(state)
+                Spacer(Modifier.height(24.dp))
+
+                when (state.state) {
+                    CallState.WAITING_FOR_ANSWER -> state.signalToCopy?.let { OfferExchange(it) }
+                    CallState.CONNECTING -> state.signalToCopy?.let { AnswerExchange(it) }
+                    CallState.FAILED -> state.errorMessage?.let { ErrorCard(it) }
+                    else -> {}
                 }
-                FilledIconButton(
-                    onClick = { controller.hangup(); onClose() },
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.error),
-                    modifier = Modifier.size(72.dp)
-                ) {
-                    Icon(Icons.Default.CallEnd, "Завершить", Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onError)
-                }
-                FilledIconButton(
-                    onClick = { controller.setSpeaker(!state.isSpeakerOn) },
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = if (state.isSpeakerOn) MaterialTheme.colorScheme.primaryContainer
-                        else MaterialTheme.colorScheme.secondaryContainer
-                    ),
-                    modifier = Modifier.size(56.dp)
-                ) {
-                    Icon(
-                        if (state.isSpeakerOn) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
-                        "Громкая связь",
-                        Modifier.size(26.dp)
-                    )
-                }
+                Spacer(Modifier.height(16.dp))
             }
-        } else if (state.state == CallState.ENDED) {
-            Spacer(modifier = Modifier.height(48.dp))
-            Button(onClick = onClose) { Text("На главную") }
+
+            when {
+                state.state == CallState.RINGING -> IncomingControls(onAccept)
+                state.state == CallState.FAILED ->
+                    Button(onClick = { CallManager.dismiss() }, modifier = Modifier.widthIn(min = 200.dp)) {
+                        Text("Закрыть")
+                    }
+                state.state == CallState.ENDED -> {}
+                else -> InCallControls(state)
+            }
+            Spacer(Modifier.height(28.dp))
         }
     }
 }
 
-private fun statusText(state: CallState): String = when (state) {
-    CallState.IDLE -> ""
-    CallState.CREATING_OFFER -> "Создание Offer…"
-    CallState.WAITING_FOR_ANSWER -> "Ожидание Answer"
-    CallState.CREATING_ANSWER -> "Создание Answer…"
-    CallState.CONNECTING -> "Соединение…"
-    CallState.CONNECTED -> "На линии"
-    CallState.ENDED -> "Звонок завершён"
-    CallState.FAILED -> "Ошибка"
+@Composable
+private fun TopBar(state: CallUiState, finished: Boolean, onMinimize: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().height(56.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (!finished) {
+            IconButton(onClick = onMinimize) {
+                Icon(Icons.Default.KeyboardArrowDown, "Свернуть")
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        if (state.state == CallState.CONNECTED && state.quality != LinkQuality.UNKNOWN) {
+            QualityChip(state.quality)
+        }
+    }
+}
+
+@Composable
+private fun QualityChip(quality: LinkQuality) {
+    val (label, color) = when (quality) {
+        LinkQuality.GOOD -> "Отличная связь" to AcceptGreen
+        LinkQuality.FAIR -> "Средняя связь" to Color(0xFFE0A100)
+        else -> "Слабая связь" to DeclineRed
+    }
+    Surface(shape = RoundedCornerShape(50), color = color.copy(alpha = 0.14f)) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.SignalCellularAlt, null, Modifier.size(16.dp), tint = color)
+            Spacer(Modifier.width(6.dp))
+            Text(label, style = MaterialTheme.typography.labelMedium, color = color)
+        }
+    }
+}
+
+@Composable
+private fun PulsingAvatar(name: String, seed: String, pulsing: Boolean) {
+    val size = 128.dp
+    Box(Modifier.size(size * 1.5f), contentAlignment = Alignment.Center) {
+        if (pulsing) {
+            val transition = rememberInfiniteTransition(label = "pulse")
+            listOf(0, 900).forEach { offset ->
+                val progress by transition.animateFloat(
+                    initialValue = 0f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(1800, delayMillis = offset, easing = LinearEasing),
+                        repeatMode = RepeatMode.Restart
+                    ),
+                    label = "ring$offset"
+                )
+                Box(
+                    Modifier
+                        .size(size)
+                        .scale(1f + 0.45f * progress)
+                        .alpha(0.28f * (1f - progress))
+                        .background(MaterialTheme.colorScheme.primary, CircleShape)
+                )
+            }
+        }
+        Avatar(name = name, seed = seed, size = size)
+    }
+}
+
+@Composable
+private fun StatusLine(state: CallUiState) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    when (state.state) {
+        CallState.CONNECTED -> {
+            CallTimer(state.connectedAt)
+            val note = when {
+                state.isOnHold -> "На удержании"
+                state.isReconnecting -> "Связь прервалась, восстанавливаем…"
+                state.isRemoteMuted -> "Собеседник выключил микрофон"
+                state.isMuted -> "Ваш микрофон выключен"
+                else -> null
+            }
+            AnimatedVisibility(visible = note != null) {
+                Text(
+                    note.orEmpty(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (state.isReconnecting) MaterialTheme.colorScheme.error else muted,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+        }
+        CallState.ENDED -> {
+            Text(state.statusMessage.ifBlank { "Звонок завершён" }, style = MaterialTheme.typography.titleMedium, color = muted)
+            if (state.durationSec > 0) {
+                Text(formatDuration(state.durationSec), style = MaterialTheme.typography.bodyMedium, color = muted)
+            }
+        }
+        CallState.CREATING_OFFER, CallState.CREATING_ANSWER -> {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(10.dp))
+                Text(state.statusMessage.ifBlank { "Подготовка…" }, style = MaterialTheme.typography.titleMedium, color = muted)
+            }
+        }
+        CallState.RINGING -> Text("Входящий звонок DP Call", style = MaterialTheme.typography.titleMedium, color = muted)
+        CallState.FAILED -> Text(
+            state.statusMessage.ifBlank { "Ошибка" },
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.error
+        )
+        else -> Text(
+            if (state.state == CallState.CONNECTING && state.signalToCopy == null) "Соединяемся…"
+            else if (state.isIncoming) "Входящий звонок" else "Исходящий звонок",
+            style = MaterialTheme.typography.titleMedium,
+            color = muted
+        )
+    }
+}
+
+@Composable
+private fun CallTimer(connectedAt: Long) {
+    var seconds by remember(connectedAt) {
+        mutableLongStateOf(((SystemClock.elapsedRealtime() - connectedAt) / 1000).coerceAtLeast(0))
+    }
+    LaunchedEffect(connectedAt) {
+        while (true) {
+            seconds = ((SystemClock.elapsedRealtime() - connectedAt) / 1000).coerceAtLeast(0)
+            delay(500)
+        }
+    }
+    Text(
+        formatDuration(seconds),
+        style = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Monospace),
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+private fun formatDuration(totalSec: Long): String {
+    val h = totalSec / 3600
+    val m = (totalSec % 3600) / 60
+    val s = totalSec % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
+}
+
+// ------------------------------------------------------------- обмен кодами
+
+@Composable
+private fun StepCard(number: Int, title: String, content: @Composable () -> Unit) {
+    Card(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(26.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        number.toString(),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Text(title, style = MaterialTheme.typography.titleSmall)
+            }
+            Spacer(Modifier.height(12.dp))
+            content()
+        }
+    }
+}
+
+@Composable
+private fun SendButtons(signal: String, what: String) {
+    val context = LocalContext.current
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = { shareText(context, signal, "Отправить собеседнику") }, modifier = Modifier.weight(1f)) {
+            Icon(Icons.Default.Share, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Отправить", maxLines = 1)
+        }
+        FilledTonalButton(
+            onClick = {
+                copyToClipboard(context, signal)
+                Toast.makeText(context, "$what: скопировано", Toast.LENGTH_SHORT).show()
+            },
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(Icons.Default.ContentCopy, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Копировать", maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun OfferExchange(signal: String) {
+    val context = LocalContext.current
+    var input by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    fun submit(raw: String) {
+        error = when (val result = CallManager.handleSignal(raw)) {
+            SignalResult.AnswerApplied, SignalResult.Ignored -> null
+            SignalResult.Own -> "Это ваше приглашение. Нужен ответ собеседника"
+            SignalResult.Ringing, SignalResult.Busy -> "Это приглашение, а нужен ответ собеседника"
+            SignalResult.Unexpected -> "Ответ сейчас не ожидается"
+            is SignalResult.Invalid -> result.message
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        StepCard(1, "Отправьте приглашение собеседнику") {
+            SendButtons(signal, "Приглашение")
+        }
+        StepCard(2, "Получите его ответ") {
+            Text(
+                "Скопируйте ответ в мессенджере и вернитесь сюда — он подхватится сам. " +
+                    "Или нажмите в мессенджере «Поделиться → DP Call».",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = input,
+                onValueChange = { input = it; error = null },
+                label = { Text("Ответ собеседника") },
+                modifier = Modifier.fillMaxWidth(),
+                maxLines = 2,
+                isError = error != null,
+                supportingText = error?.let { { Text(it) } },
+                trailingIcon = {
+                    IconButton(onClick = {
+                        val clip = (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+                            .primaryClip?.getItemAt(0)?.coerceToText(context)?.toString()
+                        if (clip.isNullOrBlank()) {
+                            error = "Буфер обмена пуст"
+                        } else {
+                            input = clip
+                            submit(clip)
+                        }
+                    }) { Icon(Icons.Default.ContentPaste, "Вставить из буфера") }
+                }
+            )
+            Spacer(Modifier.height(4.dp))
+            Button(
+                onClick = { submit(input) },
+                enabled = input.isNotBlank(),
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Соединить") }
+        }
+    }
+}
+
+@Composable
+private fun AnswerExchange(signal: String) {
+    StepCard(1, "Отправьте ответ собеседнику") {
+        SendButtons(signal, "Ответ")
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(10.dp))
+            Text(
+                "Разговор начнётся, как только собеседник вставит ответ",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun ErrorCard(message: String) {
+    Card(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+    ) {
+        Text(
+            message,
+            Modifier.padding(16.dp),
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            style = MaterialTheme.typography.bodyMedium
+        )
+    }
+}
+
+// ------------------------------------------------------------------ кнопки
+
+@Composable
+private fun RoundAction(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    container: Color,
+    content: Color,
+    size: Dp = 60.dp
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(96.dp)) {
+        FilledIconButton(
+            onClick = onClick,
+            modifier = Modifier.size(size),
+            colors = IconButtonDefaults.filledIconButtonColors(containerColor = container, contentColor = content)
+        ) {
+            Icon(icon, label, Modifier.size(size * 0.44f))
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            maxLines = 2
+        )
+    }
+}
+
+@Composable
+private fun ToggleAction(icon: ImageVector, label: String, active: Boolean, onClick: () -> Unit) {
+    RoundAction(
+        icon = icon,
+        label = label,
+        onClick = onClick,
+        container = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+        content = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+    )
+}
+
+@Composable
+private fun IncomingControls(onAccept: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+        RoundAction(Icons.Default.CallEnd, "Отклонить", { CallManager.declineIncoming() }, DeclineRed, Color.White, 72.dp)
+        RoundAction(Icons.Default.Call, "Принять", onAccept, AcceptGreen, Color.White, 72.dp)
+    }
+}
+
+@Composable
+private fun InCallControls(state: CallUiState) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            ToggleAction(
+                icon = if (state.isMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                label = if (state.isMuted) "Микрофон выкл." else "Микрофон",
+                active = state.isMuted,
+                onClick = { CallManager.toggleMute() }
+            )
+            ToggleAction(
+                icon = Icons.Default.GraphicEq,
+                label = "Шумоподавление",
+                active = state.noiseSuppression,
+                onClick = { CallManager.setNoiseSuppression(!state.noiseSuppression) }
+            )
+            AudioRouteAction(state)
+        }
+        Spacer(Modifier.height(28.dp))
+        RoundAction(Icons.Default.CallEnd, "Завершить", { CallManager.hangup() }, DeclineRed, Color.White, 72.dp)
+    }
+}
+
+private fun routeIcon(route: AudioRoute): ImageVector = when (route) {
+    AudioRoute.SPEAKER -> Icons.AutoMirrored.Filled.VolumeUp
+    AudioRoute.BLUETOOTH -> Icons.Default.Bluetooth
+    AudioRoute.WIRED_HEADSET -> Icons.Default.Headset
+    AudioRoute.EARPIECE -> Icons.Default.PhoneInTalk
+}
+
+private fun routeLabel(route: AudioRoute): String = when (route) {
+    AudioRoute.SPEAKER -> "Динамик"
+    AudioRoute.BLUETOOTH -> "Bluetooth"
+    AudioRoute.WIRED_HEADSET -> "Гарнитура"
+    AudioRoute.EARPIECE -> "Телефон"
+}
+
+/** Две цели — простой переключатель динамика; больше (есть Bluetooth) — меню выбора. */
+@Composable
+private fun AudioRouteAction(state: CallUiState) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val routes = state.availableRoutes
+    Box {
+        if (routes.size > 2) {
+            ToggleAction(
+                icon = routeIcon(state.audioRoute),
+                label = routeLabel(state.audioRoute),
+                active = state.audioRoute != AudioRoute.EARPIECE,
+                onClick = { menuOpen = true }
+            )
+        } else {
+            ToggleAction(
+                icon = Icons.AutoMirrored.Filled.VolumeUp,
+                label = "Динамик",
+                active = state.audioRoute == AudioRoute.SPEAKER,
+                onClick = { CallManager.toggleSpeaker() }
+            )
+        }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            routes.forEach { route ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            routeLabel(route),
+                            fontWeight = if (route == state.audioRoute) FontWeight.SemiBold else FontWeight.Normal
+                        )
+                    },
+                    leadingIcon = { Icon(routeIcon(route), null) },
+                    onClick = {
+                        menuOpen = false
+                        CallManager.setAudioRoute(route)
+                    }
+                )
+            }
+        }
+    }
 }
 
 private fun copyToClipboard(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    cm.setPrimaryClip(ClipData.newPlainText("DP Call signal", text))
+    cm.setPrimaryClip(ClipData.newPlainText(MainActivity.CLIP_LABEL, text))
 }

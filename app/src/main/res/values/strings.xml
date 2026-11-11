@@ -1,15 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">DP Call</string>
-    <string name="copy_code">Скопировать код</string>
-    <string name="add_contact">Добавить контакт</string>
-    <string name="call">Позвонить</string>
-    <string name="hangup">Завершить</string>
-    <string name="mute">Микрофон</string>
-    <string name="speaker">Динамик</string>
-    <string name="settings">Настройки</string>
-    <string name="your_code">Ваш код</string>
-    <string name="paste_answer">Вставьте Answer</string>
-    <string name="connecting">Соединяемся…</string>
-    <string name="call_ended">Звонок завершён</string>
+    <string name="share_target_label">Звонок DP Call</string>
 </resources>

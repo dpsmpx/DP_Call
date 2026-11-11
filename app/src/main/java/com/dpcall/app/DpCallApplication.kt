@@ -1,14 +1,13 @@
 package com.dpcall.app
 
 import android.app.Application
+import com.dpcall.app.call.CallManager
+import com.dpcall.app.call.CallNotifications
 
-/**
- * Application entry point.
- * Keep minimal — no heavy initialization here.
- */
 class DpCallApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        // Future: initialize identity, preferences, etc.
+        CallNotifications.ensureChannels(this)
+        CallManager.init(this)
     }
 }

@@ -10,10 +10,7 @@ import com.dpcall.app.data.ContactsRepository
 import com.dpcall.app.data.IdentityRepository
 import com.dpcall.app.domain.Contact
 import com.dpcall.app.domain.Identity
-import com.dpcall.app.signaling.SignalCodec
-import com.dpcall.app.signaling.SignalType
 import com.dpcall.app.util.CodeValidator
-import com.dpcall.app.webrtc.CallController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,9 +29,9 @@ data class HomeUiState(
     val addNameInput: String = "",
     val addError: String? = null,
     val isAdding: Boolean = false,
-    val activeCall: CallController? = null,
     val showIncomingDialog: Boolean = false,
-    val incomingOfferInput: String = ""
+    val incomingOfferInput: String = "",
+    val incomingError: String? = null
 )
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
@@ -155,21 +152,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { contactsRepo.remove(code) }
     }
 
-    fun startCall(contact: Contact) {
-        val identity = _uiState.value.identity ?: return
-        if (_uiState.value.activeCall != null) return
-
-        val controller = CallController(
-            context = getApplication(),
-            myIdentity = identity.value,
-            useTurn = true
-        )
-        _uiState.update { it.copy(activeCall = controller) }
-        controller.startOutgoing(contact.name, contact.code)
-    }
-
     fun openIncomingDialog() {
-        _uiState.update { it.copy(showIncomingDialog = true, incomingOfferInput = "") }
+        _uiState.update { it.copy(showIncomingDialog = true, incomingOfferInput = "", incomingError = null) }
     }
 
     fun closeIncomingDialog() {
@@ -177,7 +161,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onIncomingOfferChange(value: String) {
-        _uiState.update { it.copy(incomingOfferInput = value) }
+        _uiState.update { it.copy(incomingOfferInput = value, incomingError = null) }
     }
 
     fun pasteIncomingOffer() {
@@ -189,43 +173,16 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             ?.toString()
             ?.trim()
             ?: return
-        _uiState.update { it.copy(incomingOfferInput = text) }
+        _uiState.update { it.copy(incomingOfferInput = text, incomingError = null) }
     }
 
-    fun acceptIncomingOffer() {
-        val offer = _uiState.value.incomingOfferInput.trim()
-        if (offer.isBlank()) return
-
-        val decoded = SignalCodec.decode(offer).getOrNull()
-        if (decoded == null || decoded.type != SignalType.OFFER) {
-            return
-        }
-
-        val identity = _uiState.value.identity ?: return
-        val remoteId = decoded.payload.identity
-        val contactName = _uiState.value.contacts
-            .find { it.code.equals(remoteId, ignoreCase = true) }
-            ?.name
-            ?: remoteId
-            ?: "Собеседник"
-
-        val controller = CallController(
-            context = getApplication(),
-            myIdentity = identity.value,
-            useTurn = true
-        )
-        _uiState.update {
-            it.copy(
-                activeCall = controller,
-                showIncomingDialog = false,
-                incomingOfferInput = ""
-            )
-        }
-        controller.acceptIncoming(offer, contactName)
+    fun setIncomingError(message: String?) {
+        _uiState.update { it.copy(incomingError = message) }
     }
 
-    fun closeCall() {
-        _uiState.value.activeCall?.reset()
-        _uiState.update { it.copy(activeCall = null) }
+    fun renameContact(code: String, newName: String) {
+        val name = newName.trim()
+        if (name.isBlank()) return
+        viewModelScope.launch { contactsRepo.updateName(code, name) }
     }
 }

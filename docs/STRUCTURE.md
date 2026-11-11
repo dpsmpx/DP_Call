@@ -4,10 +4,11 @@
 DP_Call/
 ├── app/
 │   └── src/main/java/com/dpcall/app/
+│       ├── call/          # CallManager, CallService, TelecomBridge, notifications
 │       ├── data/          # DataStore repositories
 │       ├── domain/        # Identity, Contact
 │       ├── signaling/     # DPCALL1 codec
-│       ├── webrtc/        # PeerConnection, CallController
+│       ├── webrtc/        # PeerConnection, audio processing and routing
 │       ├── ui/            # Compose screens
 │       └── util/
 ├── docs/

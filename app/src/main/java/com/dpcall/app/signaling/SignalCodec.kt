@@ -1,10 +1,10 @@
 package com.dpcall.app.signaling
 
-import android.util.Base64
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.util.Base64
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
@@ -21,10 +21,7 @@ object SignalCodec {
     fun encode(type: SignalType, payload: SdpPayload): String {
         val jsonBytes = json.encodeToString(payload).toByteArray(Charsets.UTF_8)
         val compressed = gzip(jsonBytes)
-        val b64 = Base64.encodeToString(
-            compressed,
-            Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
-        )
+        val b64 = Base64.getUrlEncoder().withoutPadding().encodeToString(compressed)
         return "$PREFIX.${type.code}.$b64"
     }
 
@@ -54,10 +51,7 @@ object SignalCodec {
                 return Result.failure(SignalException("Пустой payload"))
             }
 
-            val compressed = Base64.decode(
-                payloadB64,
-                Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
-            )
+            val compressed = Base64.getUrlDecoder().decode(payloadB64.trimEnd('='))
             val jsonBytes = gunzip(compressed)
             val payload = json.decodeFromString<SdpPayload>(
                 jsonBytes.toString(Charsets.UTF_8)
@@ -73,6 +67,20 @@ object SignalCodec {
         } catch (e: Exception) {
             Result.failure(SignalException("Повреждённый или неверный код", e))
         }
+    }
+
+    private val SIGNAL_REGEX = Regex("DPCALL\\d+\\.[A-Za-z]\\.[A-Za-z0-9_\\-]+")
+
+    /**
+     * Достаёт DPCALL-строку из произвольного текста (например, из сообщения
+     * мессенджера с подписью). Возвращает null, если её там нет.
+     */
+    fun extract(text: String): String? {
+        val direct = SIGNAL_REGEX.find(text)?.value
+        if (direct != null && decode(direct).isSuccess) return direct
+        // Мессенджер мог разбить длинную строку переносами.
+        val squashed = SIGNAL_REGEX.find(text.replace(Regex("\\s+"), ""))?.value
+        return squashed ?: direct
     }
 
     fun looksLikeSignal(raw: String): Boolean {

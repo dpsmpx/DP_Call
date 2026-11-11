@@ -11,11 +11,18 @@
 - Call flow with manual Offer/Answer exchange
 - Call UI
 
-## Stage 2 — Call reliability
+## Stage 2 — Call reliability (done)
 - Correct ICE candidate mid/m-line handling
 - Audio focus + speakerphone
 - Better error messages
 - Connection quality indicators
+
+## Stage 2.5 — Real dialer behaviour (done, needs device testing)
+- Incoming call notification with Accept / Decline
+- Foreground service: calls survive minimizing, hang up from the notification
+- System Telecom integration: wired / Bluetooth headset buttons, audio endpoints, hold
+- Mute, noise suppression both ways, Opus tuning
+- UI polish
 
 ## Stage 3 — Polish
 - Themes refinement
