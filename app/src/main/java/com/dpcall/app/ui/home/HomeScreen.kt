@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -89,6 +91,7 @@ import com.dpcall.app.ui.components.shareText
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
+    onOnboardingDone: () -> Unit,
     onCall: (Contact) -> Unit,
     onAnswerOffer: (raw: String, onResult: (SignalResult) -> Unit) -> Unit,
     viewModel: HomeViewModel = viewModel()
@@ -98,6 +101,9 @@ fun HomeScreen(
     var contactToDelete by remember { mutableStateOf<Contact?>(null) }
     var contactToRename by remember { mutableStateOf<Contact?>(null) }
     var showSettings by remember { mutableStateOf(false) }
+    var showHelp by remember { mutableStateOf(false) }
+    val appSettings = remember { AppSettings.get(context) }
+    val onboardingShown by appSettings.onboardingShown.collectAsStateWithLifecycle()
     val relayStatus by RelaySignaling.status.collectAsStateWithLifecycle()
 
     Scaffold(
@@ -221,7 +227,27 @@ fun HomeScreen(
     }
 
     if (showSettings) {
-        SettingsDialog(relayStatus = relayStatus, onDismiss = { showSettings = false })
+        SettingsDialog(
+            relayStatus = relayStatus,
+            onHelp = {
+                showSettings = false
+                showHelp = true
+            },
+            onDismiss = { showSettings = false }
+        )
+    }
+
+    if (!onboardingShown || showHelp) {
+        OnboardingDialog(
+            firstRun = !onboardingShown,
+            onDone = {
+                showHelp = false
+                if (!onboardingShown) {
+                    appSettings.setOnboardingShown()
+                    onOnboardingDone()
+                }
+            }
+        )
     }
 
     contactToDelete?.let { contact ->
@@ -316,7 +342,7 @@ private fun SettingRow(title: String, description: String, checked: Boolean, onC
 }
 
 @Composable
-private fun SettingsDialog(relayStatus: RelayStatus, onDismiss: () -> Unit) {
+private fun SettingsDialog(relayStatus: RelayStatus, onHelp: () -> Unit, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val settings = remember { AppSettings.get(context) }
     val background by settings.backgroundListening.collectAsStateWithLifecycle()
@@ -365,7 +391,86 @@ private fun SettingsDialog(relayStatus: RelayStatus, onDismiss: () -> Unit) {
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Готово") } }
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Готово") } },
+        dismissButton = { TextButton(onClick = onHelp) { Text("Как пользоваться") } }
+    )
+}
+
+private fun appVersion(context: Context): String = try {
+    context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: ""
+} catch (e: Exception) {
+    ""
+}
+
+@Composable
+private fun OnboardingStep(number: Int, title: String, text: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Box(
+            Modifier.size(28.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(number.toString(), color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.labelLarge)
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(2.dp))
+            Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** Вводная инструкция: показывается при первом запуске и по кнопке «Как пользоваться». */
+@Composable
+private fun OnboardingDialog(firstRun: Boolean, onDone: () -> Unit) {
+    val context = LocalContext.current
+    AlertDialog(
+        // При первом запуске закрывается только кнопкой — чтобы инструкцию не смахнули случайно.
+        onDismissRequest = { if (!firstRun) onDone() },
+        icon = { Icon(Icons.Default.Call, null) },
+        title = { Text(if (firstRun) "Добро пожаловать в DP Call" else "Как пользоваться") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "Голосовые звонки напрямую между телефонами: без регистрации, номера и серверов.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(Modifier.height(8.dp))
+                OnboardingStep(
+                    1, "Обменяйтесь кодами",
+                    "Отправьте собеседнику «Ваш код» с главного экрана и получите его код — через любой мессенджер."
+                )
+                OnboardingStep(
+                    2, "Добавьте друг друга",
+                    "Кнопка «Контакт». Добавить должны оба: звонки с незнакомых кодов по умолчанию не принимаются."
+                )
+                OnboardingStep(
+                    3, "Звоните",
+                    "Нажмите на трубку рядом с контактом — у собеседника зазвонит телефон, даже если приложение закрыто."
+                )
+                OnboardingStep(
+                    4, "Оставайтесь на связи",
+                    "Разрешите микрофон и уведомления. Чтобы не пропускать звонки, в настройках (шестерёнка) " +
+                        "включите «Не ограничивать в фоне». Зелёная плашка «На связи» значит, что вам можно позвонить."
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Если собеседник не на связи, приглашение можно отправить вручную — кнопка появится на экране звонка.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                val version = appVersion(context)
+                if (!firstRun && version.isNotBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Версия $version",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+        },
+        confirmButton = { Button(onClick = onDone) { Text(if (firstRun) "Начать" else "Понятно") } }
     )
 }
 

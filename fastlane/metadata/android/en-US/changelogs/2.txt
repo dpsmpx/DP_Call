@@ -1,0 +1,6 @@
+First release.
+* Peer-to-peer voice calls without servers or sign-up
+* Calls reach the peer automatically via public Nostr relays, end-to-end encrypted
+* Accept / Decline notification, background calls, headset controls
+* Noise suppression both ways, audio output selection
+* First-run guide

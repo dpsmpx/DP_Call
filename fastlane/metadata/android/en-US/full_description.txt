@@ -1,0 +1,25 @@
+DP Call is a minimalist dialer for peer-to-peer voice calls. There are no accounts, no phone numbers and no developer-run servers: the conversation goes directly between the two phones (WebRTC, DTLS-SRTP encryption).
+
+<b>How it works</b>
+
+Every user gets a code, which is their public key. Exchange codes, add each other to contacts and call: the other phone rings even when the app is closed.
+
+The call request travels end-to-end encrypted through public Nostr relays. A relay cannot see who is calling whom, the codes or the connection details — only an IP address and a timestamp. If the other side is offline, the invitation can be sent manually through any messenger.
+
+<b>Features</b>
+
+* Incoming calls like a regular dialer: Accept / Decline notification, shown over the lock screen
+* Calls continue when the app is minimized and can be ended from the notification
+* Answer and hang up with wired and Bluetooth headset buttons
+* Mute, audio output selection: earpiece, speaker, headset, Bluetooth
+* Noise suppression in both directions, echo cancellation, Opus at 48 kHz
+* Connection quality indicator
+* Calls accepted from contacts only (by default)
+
+<b>Good to know</b>
+
+* Voice only: no video, chats or files
+* To receive calls in the background the app keeps a persistent connection to the relays (a silent notification) — no Google Play Services or push services involved
+* Public STUN and TURN servers are used for NAT traversal
+* The key never leaves the device; reinstalling the app changes your code
+* The interface is in Russian

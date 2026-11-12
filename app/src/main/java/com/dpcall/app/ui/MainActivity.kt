@@ -25,6 +25,7 @@ import com.dpcall.app.call.CallManager
 import com.dpcall.app.call.ListenService
 import com.dpcall.app.call.RelaySignaling
 import com.dpcall.app.call.SignalResult
+import com.dpcall.app.data.AppSettings
 import com.dpcall.app.signaling.SignalCodec
 import com.dpcall.app.ui.call.CallScreen
 import com.dpcall.app.ui.home.HomeScreen
@@ -58,7 +59,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         CallManager.init(this)
         enableEdgeToEdge()
-        if (savedInstanceState == null) requestStartupPermissions()
+        // При самом первом запуске сначала показываем инструкцию; разрешения — после неё.
+        if (savedInstanceState == null && AppSettings.get(this).onboardingShown.value) {
+            requestStartupPermissions()
+        }
 
         setContent {
             DPCallTheme {
@@ -72,6 +76,7 @@ class MainActivity : ComponentActivity() {
                         )
                     } else {
                         HomeScreen(
+                            onOnboardingDone = { requestStartupPermissions() },
                             onCall = { contact ->
                                 withMicPermission { CallManager.startOutgoing(contact.name, contact.code) }
                             },

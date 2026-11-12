@@ -17,6 +17,15 @@ class AppSettings private constructor(context: Context) {
     /** Принимать звонки только от тех, кто есть в контактах. */
     val contactsOnly: StateFlow<Boolean> = _contactsOnly.asStateFlow()
 
+    private val _onboardingShown = MutableStateFlow(prefs.getBoolean(KEY_ONBOARDING, false))
+    /** Вводная инструкция уже показана при первом запуске. */
+    val onboardingShown: StateFlow<Boolean> = _onboardingShown.asStateFlow()
+
+    fun setOnboardingShown() {
+        prefs.edit().putBoolean(KEY_ONBOARDING, true).apply()
+        _onboardingShown.value = true
+    }
+
     var noiseSuppression: Boolean
         get() = prefs.getBoolean(KEY_NOISE_SUPPRESSION, true)
         set(value) = prefs.edit().putBoolean(KEY_NOISE_SUPPRESSION, value).apply()
@@ -35,6 +44,7 @@ class AppSettings private constructor(context: Context) {
         private const val KEY_BACKGROUND = "background_listening"
         private const val KEY_CONTACTS_ONLY = "contacts_only"
         private const val KEY_NOISE_SUPPRESSION = "noise_suppression"
+        private const val KEY_ONBOARDING = "onboarding_shown"
 
         @Volatile
         private var instance: AppSettings? = null

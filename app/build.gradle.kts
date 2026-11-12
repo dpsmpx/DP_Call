@@ -13,8 +13,8 @@ android {
         applicationId = "com.dpcall.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-dev"
+        versionCode = 2
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -43,8 +43,12 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            signingConfig = signingConfigs.findByName("release")
+            // Минификация пока выключена: на устройствах проверена только неминифицированная
+            // сборка. Включать после проверки звонков на R8-сборке (правила — proguard-rules.pro).
+            isMinifyEnabled = false
+            // Без релизного ключа сборка подписывается общим тестовым ключом из репозитория.
+            // F-Droid подпись игнорирует и подписывает своим ключом.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
