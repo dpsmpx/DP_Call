@@ -8,7 +8,7 @@ F-Droid сам собирает приложение из исходников �
 
 - Лицензия MIT (`LICENSE`), открытый исходный код, сборка одной командой Gradle.
 - Нет Google Play Services, Firebase, аналитики и рекламы.
-- Тег версии `v1.0.0` (создаётся релизом GitHub Actions).
+- Тег версии `v1.1.0` (создаётся релизом GitHub Actions).
 - Описание, иконка и список изменений в формате, который читает F-Droid:
   `fastlane/metadata/android/{ru-RU,en-US}/`.
 - Готовый файл метаданных: [`docs/fdroid/com.dpcall.app.yml`](fdroid/com.dpcall.app.yml).
@@ -33,8 +33,8 @@ git checkout -b com.dpcall.app
 cp /путь/к/DP_Call/docs/fdroid/com.dpcall.app.yml metadata/com.dpcall.app.yml
 ```
 
-Перед подачей замените в файле версию на актуальную (`versionName`, `versionCode`,
-`commit`, `CurrentVersion`, `CurrentVersionCode`) — сейчас там 1.0.0.
+В файле указана версия 1.1.0. Если к моменту подачи вышла более новая, замените
+`versionName`, `versionCode`, `commit`, `CurrentVersion` и `CurrentVersionCode`.
 
 ### 3. Проверьте локально (желательно)
 

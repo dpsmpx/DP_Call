@@ -35,7 +35,7 @@
 - GitHub Actions build, GitHub Releases
 - F-Droid metadata and submission guide
 
-## Stage 3.1 — v1.1.0 (implemented, device testing pending)
+## Stage 3.1 — v1.1.0 (done)
 - R8 minification, ARM-only release APK
 - ICE restart on network change
 - QR codes, call history, unknown-caller prompt
@@ -44,7 +44,7 @@
 
 ## Stage 4 — Hardening
 - Security and code audit before the public release (done, see SECURITY.md)
-- Own release signing key
+- Own release signing key (done)
 - F-Droid inclusion; app screenshots for the store listing
 - Stress tests on real networks, Doze and vendor battery savers
 

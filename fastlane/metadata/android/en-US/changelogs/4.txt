@@ -1,6 +1,7 @@
-* Calls survive a network switch (Wi-Fi ↔ mobile)
+* Calls connect in 1–2 seconds and survive a network switch
 * QR codes for exchanging contacts, call history
 * Calls from unknown codes can be accepted and saved to contacts
 * Custom TURN server and relay list in Settings
 * English interface
+* Hardened security: signed invitations, fixes from a pre-release audit
 * The app is almost three times smaller
