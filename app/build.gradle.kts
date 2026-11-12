@@ -6,15 +6,15 @@ plugins {
 }
 
 android {
-    namespace = "com.dpcall.app"
+    namespace = "com.dpsmpx.dpcall"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.dpcall.app"
+        applicationId = "com.dpsmpx.dpcall"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.1.0"
+        versionCode = 5
+        versionName = "1.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -51,8 +51,10 @@ android {
             ndk {
                 abiFilters += listOf("arm64-v8a", "armeabi-v7a")
             }
+            // Сведения о коммите в APK зависят от способа получения исходников и мешают
+            // воспроизводимой сборке (F-Droid сверяет свой APK с опубликованным).
+            vcsInfo.include = false
             // Без релизного ключа сборка подписывается общим тестовым ключом из репозитория.
-            // F-Droid подпись игнорирует и подписывает своим ключом.
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -82,6 +84,24 @@ android {
     dependenciesInfo {
         includeInApk = false
         includeInBundle = false
+    }
+
+    testOptions {
+        unitTests {
+            // Ресурсы нужны только съёмке скриншотов для каталога (StoreScreenshotsTest).
+            isIncludeAndroidResources = true
+            all { test ->
+                // Скриншоты снимаются отдельно: ./gradlew testDebugUnitTest -Pscreenshots
+                if (project.hasProperty("screenshots")) {
+                    test.filter.includeTestsMatching("*StoreScreenshotsTest")
+                    test.systemProperty("roborazzi.test.record", "true")
+                    test.systemProperty("robolectric.pixelCopyRenderMode", "hardware")
+                    test.maxHeapSize = "3g"
+                } else {
+                    test.exclude("**/StoreScreenshotsTest*")
+                }
+            }
+        }
     }
 
     packaging {
@@ -122,6 +142,13 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("fr.acinq.secp256k1:secp256k1-kmp-jni-jvm:0.16.0")
+    // Съёмка скриншотов для каталога на JVM, без эмулятора (см. docs/FDROID.md)
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.43.1")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.43.1")
+    testImplementation(platform("androidx.compose:compose-bom:2024.10.01"))
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
 }

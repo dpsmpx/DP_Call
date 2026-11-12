@@ -1,0 +1,3 @@
+* Fixed clipped labels in the Russian interface: the Copy button on the home screen and Noise suppression on the call screen
+* New application ID (com.dpsmpx.dpcall): this version installs as a separate app, remove 1.1.0 manually; your code changes, so exchange codes again
+* The build is now reproducible: the APK can be verified against the source code
