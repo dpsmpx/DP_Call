@@ -151,7 +151,7 @@
     <string name="welcome">Добро пожаловать в DP Call</string>
     <string name="onboarding_intro">Голосовые звонки напрямую между телефонами: без регистрации, номера и серверов.</string>
     <string name="onboarding_1_title">Обменяйтесь кодами</string>
-    <string name="onboarding_1_text">Отправьте собеседнику «Ваш код» с главного экрана и получите его код — через любой мессенджер.</string>
+    <string name="onboarding_1_text">Отправьте собеседнику свой код кнопками вверху главного экрана (копировать, отправить или QR) и получите его код.</string>
     <string name="onboarding_2_title">Добавьте друг друга</string>
     <string name="onboarding_2_text">Кнопка «Контакт»: вставьте код или отсканируйте QR. Звонок от того, кого нет в контактах, придёт как «Неизвестный абонент».</string>
     <string name="onboarding_3_title">Звоните</string>
@@ -162,7 +162,6 @@
     <string name="version_fmt">Версия %1$s</string>
     <string name="start">Начать</string>
     <string name="got_it">Понятно</string>
-    <string name="your_code_hint">Передайте его собеседнику, чтобы он добавил вас в контакты</string>
     <string name="copied">Скопировано</string>
     <string name="show_qr">Показать QR-код</string>
     <string name="contacts_empty_title">Пока никого нет</string>

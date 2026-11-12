@@ -83,7 +83,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dpcall.app.call.ListenService
@@ -168,8 +167,7 @@ fun HomeScreen(
                     item(key = "status") { ConnectionStatus(relayStatus, onClick = { showSettings = true }) }
                     item(key = "own-code") {
                         OwnCodeCard(
-                            code = state.identity?.value ?: "",
-                            copied = state.copied,
+                                                        copied = state.copied,
                             onQr = { showQr = true },
                             onCopy = { viewModel.copyCodeToClipboard() },
                             onShare = {
@@ -343,9 +341,6 @@ fun HomeScreen(
         )
     }
 }
-
-/** Код разбивается на группы только для отображения — копируется он целиком. */
-private fun formatCode(code: String): String = code.chunked(4).joinToString(" ")
 
 private val OnlineGreen = Color(0xFF2E9E5B)
 
@@ -530,50 +525,30 @@ private fun OnboardingDialog(firstRun: Boolean, onDone: () -> Unit) {
 }
 
 @Composable
-private fun OwnCodeCard(code: String, copied: Boolean, onQr: () -> Unit, onCopy: () -> Unit, onShare: () -> Unit) {
+private fun OwnCodeCard(copied: Boolean, onQr: () -> Unit, onCopy: () -> Unit, onShare: () -> Unit) {
     Card(
         Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
     ) {
-        Column(Modifier.fillMaxWidth().padding(20.dp)) {
-            Text(
-                stringResource(R.string.your_code),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                formatCode(code),
-                style = MaterialTheme.typography.titleLarge.copy(
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Medium,
-                    letterSpacing = 0.5.sp,
-                    lineHeight = 30.sp
-                ),
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                stringResource(R.string.your_code_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
-            )
-            Spacer(Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onCopy, modifier = Modifier.weight(1f)) {
-                    Icon(if (copied) Icons.Default.Check else Icons.Default.ContentCopy, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (copied) stringResource(R.string.copied) else stringResource(R.string.copy), maxLines = 1)
-                }
-                FilledTonalButton(onClick = onShare, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.Share, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.send), maxLines = 1)
-                }
-                FilledTonalIconButton(onClick = onQr) {
-                    Icon(Icons.Default.QrCode2, stringResource(R.string.show_qr))
-                }
+        // Сам код не показывается: он длинный и нужен только для передачи собеседнику.
+        Row(
+            Modifier.fillMaxWidth().padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Button(onClick = onCopy, modifier = Modifier.weight(1f)) {
+                Icon(if (copied) Icons.Default.Check else Icons.Default.ContentCopy, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (copied) stringResource(R.string.copied) else stringResource(R.string.copy), maxLines = 1)
+            }
+            FilledTonalButton(onClick = onShare, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.Share, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.send), maxLines = 1)
+            }
+            FilledTonalIconButton(onClick = onQr) {
+                Icon(Icons.Default.QrCode2, stringResource(R.string.show_qr))
             }
         }
     }

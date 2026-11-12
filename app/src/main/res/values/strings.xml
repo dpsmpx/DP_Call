@@ -152,7 +152,7 @@
     <string name="welcome">Welcome to DP Call</string>
     <string name="onboarding_intro">Voice calls directly between phones: no sign-up, no phone number, no servers.</string>
     <string name="onboarding_1_title">Exchange codes</string>
-    <string name="onboarding_1_text">Send “Your code” from the main screen to the other person and get theirs — through any messenger.</string>
+    <string name="onboarding_1_text">Send your code to the other person with the buttons at the top of the main screen (copy, share or QR) and get theirs.</string>
     <string name="onboarding_2_title">Add each other</string>
     <string name="onboarding_2_text">The “Contact” button: paste the code or scan the QR. A call from someone not in your contacts shows as “Unknown caller”.</string>
     <string name="onboarding_3_title">Call</string>
@@ -163,7 +163,6 @@
     <string name="version_fmt">Version %1$s</string>
     <string name="start">Get started</string>
     <string name="got_it">Got it</string>
-    <string name="your_code_hint">Give it to the other person so they can add you to their contacts</string>
     <string name="copied">Copied</string>
     <string name="show_qr">Show QR code</string>
     <string name="contacts_empty_title">No contacts yet</string>
