@@ -40,6 +40,11 @@ RelaySignaling (Nostr relays) ───────┘
 3. B accepts → Answer is created → `answer` message back to A
 4. A applies the Answer → ICE → CONNECTED
 
+The offer and the answer are sent about a second after they are created, with the ICE
+candidates found so far; later candidates follow in `candidates` messages (trickle ICE), so
+call setup does not wait for slow TURN allocation. An early ICE failure does not end the
+call: there is a grace period for late candidates.
+
 `reject`, `busy`, `cancel` and `bye` cover the other outcomes. If B is unreachable, A can still
 send the DPCALL1 string manually (share sheet, clipboard pickup or paste).
 
@@ -85,7 +90,9 @@ All UI text lives in `res/values/strings.xml` (English, default) and `res/values
 ## ICE
 
 - STUN: Google public
-- TURN: public openrelay, plus an optional user-provided TURN server from Settings
+- TURN: public Open Relay (`staticauth.openrelay.metered.ca`), plus an optional
+  user-provided TURN server from Settings. A free public TURN server gives no availability
+  guarantee; without any working TURN, calls only connect when a direct path exists.
 
 ## Constraints
 

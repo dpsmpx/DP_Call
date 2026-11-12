@@ -27,6 +27,8 @@ data class CallMessage(
         /** Вызывающий передумал до ответа. */
         const val CANCEL = "cancel"
         const val BYE = "bye"
+        /** ICE-кандидаты, найденные после отправки offer/answer (по одному в строке). */
+        const val CANDIDATES = "candidates"
         /** Просьба к вызывающему пересогласовать соединение (сменилась сеть). */
         const val RESTART = "restart"
         /** Новый Offer / Answer при пересогласовании. */

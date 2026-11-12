@@ -108,7 +108,14 @@ sealed interface SignalResult {
 @SuppressLint("StaticFieldLeak") // хранится только applicationContext
 object CallManager {
     private const val TAG = "CallManager"
+    /** Ручной обмен: ждём все маршруты, досылать их потом нечем. */
     private const val ICE_GATHER_TIMEOUT_MS = 8_000L
+    /** Через релеи: отправляем сразу, остальные маршруты досылаем по мере нахождения. */
+    private const val ICE_FAST_GATHER_MS = 1_000L
+    private const val CANDIDATE_FLUSH_MS = 300L
+    /** Сколько ждать соединения после первого отказа ICE, прежде чем сдаться. */
+    private const val SETUP_GRACE_RELAY_MS = 20_000L
+    private const val SETUP_GRACE_MANUAL_MS = 180_000L
     private const val RING_TIMEOUT_MS = 60_000L
     private const val RECONNECT_TIMEOUT_MS = 30_000L
     private const val RESTART_MIN_INTERVAL_MS = 4_000L
@@ -155,6 +162,14 @@ object CallManager {
     private var lastReAnswer: String? = null
     /** Растёт при каждом восстановлении связи — чтобы старый таймер обрыва не завершил звонок. */
     private var connectionEpoch = 0
+
+    // Маршруты собеседника: до установки его описания копятся, потом применяются.
+    private var remoteDescriptionSet = false
+    private val pendingRemoteCandidates = LinkedHashSet<String>()
+    private val appliedRemoteCandidates = HashSet<String>()
+    private var candidateFlushScheduled = false
+    private var sentCandidateCount = 0
+    private var setupGraceScheduled = false
 
     private lateinit var callLog: CallLogRepository
     private var callStartedAt = 0L
@@ -388,6 +403,8 @@ object CallManager {
             CallMessage.BUSY -> if (current.state == CallState.WAITING_FOR_ANSWER) {
                 finish(DisconnectCause.REMOTE, app.getString(R.string.peer_busy), graceful = false)
             }
+            CallMessage.CANDIDATES -> message.signal?.lineSequence()?.filter { it.isNotBlank() }
+                ?.forEach { addRemoteCandidate(it) }
             CallMessage.RESTART -> if (!current.isIncoming) requestIceRestart()
             CallMessage.RE_OFFER -> message.signal?.let { onRestartOffer(it) }
             CallMessage.RE_ANSWER -> message.signal?.let { onRestartAnswer(it) }
@@ -443,14 +460,15 @@ object CallManager {
     }
 
     /** Повторяет сообщение: события эфемерны, а собеседник мог быть не на связи. */
-    private fun startResend(type: String, signal: String, attempts: Int, intervalMs: Long, done: () -> Boolean, onExhausted: () -> Unit = {}) {
+    private fun startResend(type: String, signal: () -> String?, attempts: Int, intervalMs: Long, done: () -> Boolean, onExhausted: () -> Unit = {}) {
         resendJob?.cancel()
         if (!CodeValidator.isValid(_uiState.value.contactCode)) return
         val gen = generation
         resendJob = scope.launch {
             repeat(attempts) {
                 if (gen != generation || done()) return@launch
-                sendToPeer(type, signal)
+                // Каждый повтор собирается заново — с маршрутами, найденными к этому моменту.
+                signal()?.let { sendToPeer(type, it) }
                 delay(intervalMs)
             }
             if (gen == generation && !done()) onExhausted()
@@ -509,7 +527,7 @@ object CallManager {
             onSuccess = {
                 main.post {
                     if (gen != generation) return@post
-                    offer.payload.candidates.forEach { addRemoteCandidate(it) }
+                    onRemoteDescriptionSet(offer.payload.candidates)
                     manager.createAnswer(
                         onSuccess = { sdp -> main.post { if (gen == generation) onLocalSdpReady(sdp) } },
                         onError = { err -> main.post { if (gen == generation) fail(humanizeError(err, app.getString(R.string.error_create_answer))) } }
@@ -545,7 +563,7 @@ object CallManager {
         pcm?.setRemoteDescription(
             sdp = SessionDescription(SessionDescription.Type.ANSWER, answer.payload.sdp),
             onSuccess = {
-                main.post { if (gen == generation) answer.payload.candidates.forEach { addRemoteCandidate(it) } }
+                main.post { if (gen == generation) onRemoteDescriptionSet(answer.payload.candidates) }
             },
             onError = { err -> main.post { if (gen == generation) fail(humanizeError(err, app.getString(R.string.error_apply_answer))) } }
         )
@@ -665,30 +683,37 @@ object CallManager {
         pendingLocalSdp = sdp
         if (!_uiState.value.viaRelay) _uiState.update { it.copy(statusMessage = app.getString(R.string.status_gathering)) }
         val gen = generation
+        val canTrickle = CodeValidator.isValid(_uiState.value.contactCode) && _uiState.value.viaRelay
         main.postDelayed({
-            if (gen == generation) finalizeLocalSignal("timeout")
-        }, ICE_GATHER_TIMEOUT_MS)
+            if (gen == generation) finalizeLocalSignal(if (canTrickle) "fast" else "timeout")
+        }, if (canTrickle) ICE_FAST_GATHER_MS else ICE_GATHER_TIMEOUT_MS)
     }
 
-    private fun finalizeLocalSignal(reason: String) {
-        if (signalFinalized) return
-        val sdp = pendingLocalSdp ?: return
-        val manager = pcm ?: return
-        signalFinalized = true
-
-        val candidates = manager.getCollectedCandidates().map {
-            "${it.sdpMid}|${it.sdpMLineIndex}|${it.sdp}"
-        }
-        AppLog.add(TAG, "local ${sdp.type} ready ($reason), candidates=${candidates.size}")
-
-        val isOffer = sdp.type == SessionDescription.Type.OFFER
-        val signal = if (isOffer) {
+    /** Текущий offer/answer со всеми найденными на этот момент маршрутами. */
+    private fun buildLocalSignal(): String? {
+        val sdp = pendingLocalSdp ?: return null
+        val manager = pcm ?: return null
+        val candidates = manager.getCollectedCandidates().map { "${it.sdpMid}|${it.sdpMLineIndex}|${it.sdp}" }
+        val signal = if (sdp.type == SessionDescription.Type.OFFER) {
             SignalingHelper.createOffer(sdp.description, candidates, myIdentity, callId)
         } else {
             SignalingHelper.createAnswer(sdp.description, candidates, myIdentity, callId)
         }
         // Свой сигнал не должен «позвонить» нам же из буфера обмена.
         handledSignals += signal.hashCode()
+        return signal
+    }
+
+    private fun finalizeLocalSignal(reason: String) {
+        if (signalFinalized) return
+        val sdp = pendingLocalSdp ?: return
+        val manager = pcm ?: return
+        val signal = buildLocalSignal() ?: return
+        signalFinalized = true
+        sentCandidateCount = manager.getCollectedCandidates().size
+        AppLog.add(TAG, "local ${sdp.type} ready ($reason), candidates: ${manager.localCandidateSummary()}")
+
+        val isOffer = sdp.type == SessionDescription.Type.OFFER
 
         _uiState.update {
             // Соединение могло установиться раньше, чем сработал таймер ICE.
@@ -708,7 +733,7 @@ object CallManager {
         // Автоматическая доставка через релеи; ручная отправка остаётся запасным путём.
         if (isOffer) {
             startResend(
-                CallMessage.OFFER, signal, OFFER_RESEND_ATTEMPTS, OFFER_RESEND_MS,
+                CallMessage.OFFER, ::buildLocalSignal, OFFER_RESEND_ATTEMPTS, OFFER_RESEND_MS,
                 done = { state != CallState.WAITING_FOR_ANSWER || _uiState.value.remoteRinging },
                 onExhausted = {
                     _uiState.update {
@@ -718,13 +743,58 @@ object CallManager {
             )
         } else {
             startResend(
-                CallMessage.ANSWER, signal, ANSWER_RESEND_ATTEMPTS, ANSWER_RESEND_MS,
+                CallMessage.ANSWER, ::buildLocalSignal, ANSWER_RESEND_ATTEMPTS, ANSWER_RESEND_MS,
                 done = { state != CallState.CONNECTING }
             )
         }
     }
 
+    /** Найден новый локальный маршрут: если offer/answer уже ушёл, досылаем отдельно. */
+    private fun onLocalCandidate() {
+        if (!signalFinalized || candidateFlushScheduled || restart != Restart.NONE) return
+        if (state == CallState.CONNECTED) return
+        candidateFlushScheduled = true
+        val gen = generation
+        main.postDelayed({
+            if (gen == generation) {
+                candidateFlushScheduled = false
+                flushLocalCandidates()
+            }
+        }, CANDIDATE_FLUSH_MS)
+    }
+
+    private fun flushLocalCandidates() {
+        val manager = pcm ?: return
+        if (!signalFinalized || state == CallState.CONNECTED || !state.isActive) return
+        val candidates = manager.getCollectedCandidates()
+        if (candidates.size == sentCandidateCount) return
+        sentCandidateCount = candidates.size
+        AppLog.add(TAG, "local candidates now: ${manager.localCandidateSummary()}")
+        // Отправляем весь список, а не только новые: сообщения эфемерны и могут теряться.
+        sendToPeer(
+            CallMessage.CANDIDATES,
+            candidates.joinToString("\n") { "${it.sdpMid}|${it.sdpMLineIndex}|${it.sdp}" }
+        )
+        // Приглашение для ручной отправки тоже должно содержать все маршруты.
+        if (_uiState.value.signalToCopy != null) {
+            buildLocalSignal()?.let { fresh -> _uiState.update { it.copy(signalToCopy = fresh) } }
+        }
+    }
+
+    private fun onRemoteDescriptionSet(candidates: List<String>) {
+        remoteDescriptionSet = true
+        val all = candidates + pendingRemoteCandidates
+        pendingRemoteCandidates.clear()
+        all.forEach { addRemoteCandidate(it) }
+    }
+
     private fun addRemoteCandidate(candidateSdp: String) {
+        if (candidateSdp in appliedRemoteCandidates) return
+        if (!remoteDescriptionSet) {
+            pendingRemoteCandidates += candidateSdp
+            return
+        }
+        appliedRemoteCandidates += candidateSdp
         try {
             val parts = candidateSdp.split('|', limit = 3)
             val candidate = if (parts.size == 3) {
@@ -733,8 +803,10 @@ object CallManager {
                 IceCandidate("0", 0, candidateSdp)
             }
             pcm?.addIceCandidate(candidate)
+            val type = Regex(" typ (\\w+)").find(candidateSdp)?.groupValues?.get(1) ?: "?"
+            AppLog.add(TAG, "remote candidate added: $type (total ${appliedRemoteCandidates.size})")
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to add candidate: $candidateSdp", e)
+            AppLog.add(TAG, "remote candidate rejected: $e")
         }
     }
 
@@ -774,8 +846,18 @@ object CallManager {
                 if (_uiState.value.connectedAt != 0L) {
                     markReconnecting()
                     requestIceRestart()
-                } else {
-                    fail(app.getString(R.string.error_no_connection))
+                } else if (!setupGraceScheduled) {
+                    // Собеседник мог ещё не получить наш ответ или не дослать маршруты:
+                    // первый отказ ICE — не приговор, соединение может подняться позже.
+                    setupGraceScheduled = true
+                    val gen = generation
+                    val grace = if (_uiState.value.viaRelay) SETUP_GRACE_RELAY_MS else SETUP_GRACE_MANUAL_MS
+                    AppLog.add(TAG, "ICE failed before connect, waiting ${grace / 1000}s for late candidates")
+                    main.postDelayed({
+                        if (gen == generation && state.isActive && _uiState.value.connectedAt == 0L) {
+                            fail(app.getString(R.string.error_no_connection))
+                        }
+                    }, grace)
                 }
             }
             PeerConnection.PeerConnectionState.CONNECTING -> {
@@ -946,7 +1028,13 @@ object CallManager {
         }
     }
 
+    private var loggedRoute: String? = null
+
     private fun onStats(stats: LinkStats) {
+        if (stats.route != null && stats.route != loggedRoute) {
+            loggedRoute = stats.route
+            AppLog.add(TAG, "media route: ${stats.route}, rtt=${stats.rttMs?.toInt()}ms loss=${stats.lossPercent.toInt()}%")
+        }
         if (state != CallState.CONNECTED || _uiState.value.isReconnecting) return
         val rtt = stats.rttMs ?: 0.0
         val quality = when {
@@ -976,6 +1064,13 @@ object CallManager {
         statsJob = null
         resendJob?.cancel()
         resendJob = null
+        remoteDescriptionSet = false
+        pendingRemoteCandidates.clear()
+        appliedRemoteCandidates.clear()
+        candidateFlushScheduled = false
+        sentCandidateCount = 0
+        setupGraceScheduled = false
+        loggedRoute = null
         restartJob?.cancel()
         restartJob = null
         restart = Restart.NONE
@@ -1090,8 +1185,11 @@ object CallManager {
 
         override fun onIceGatheringComplete() = onMain {
             finalizeLocalSignal("complete")
+            flushLocalCandidates()
             onRestartGathered()
         }
+
+        override fun onLocalCandidate() = onMain { CallManager.onLocalCandidate() }
 
         override fun onControlMessage(message: String) = onMain { CallManager.onControlMessage(message) }
 

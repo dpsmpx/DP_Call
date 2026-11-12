@@ -76,7 +76,7 @@ git push origin com.dpcall.app
 Лучше сразу написать об этом в описании merge request.
 
 - **Сеть.** Приложение подключается к публичным релеям Nostr (сигналинг), STUN-серверам
-  Google и публичному TURN `openrelay.metered.ca`. Всё это открытые протоколы, свои
+  Google и Cloudflare и публичному TURN `staticauth.openrelay.metered.ca`. Всё это открытые протоколы, свои
   серверы не используются. Ревьюеры могут поставить отметку (anti-feature) **NonFreeNet**
   из-за STUN/TURN — это не препятствие для включения.
 - **Готовые бинарные библиотеки.** WebRTC (`io.getstream:stream-webrtc-android`, BSD/Apache-2.0)

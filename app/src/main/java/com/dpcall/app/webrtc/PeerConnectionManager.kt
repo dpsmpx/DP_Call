@@ -96,7 +96,12 @@ internal object RtcEngine {
 }
 
 /** Показатели качества связи за последний интервал опроса. */
-data class LinkStats(val lossPercent: Double, val rttMs: Double?)
+data class LinkStats(
+    val lossPercent: Double,
+    val rttMs: Double?,
+    /** Тип выбранного маршрута, например «host→srflx» или «relay→relay» (через TURN). */
+    val route: String? = null
+)
 
 /**
  * Обёртка над PeerConnection для голосовых звонков. Только аудио.
@@ -111,6 +116,8 @@ class PeerConnectionManager(
     interface Listener {
         fun onConnectionChange(state: PeerConnection.PeerConnectionState)
         fun onIceGatheringComplete()
+        /** Найден новый локальный маршрут (кандидат). */
+        fun onLocalCandidate()
         fun onControlMessage(message: String)
         fun onControlChannelOpen()
     }
@@ -165,7 +172,9 @@ class PeerConnectionManager(
             }
 
             override fun onIceCandidate(candidate: IceCandidate?) {
-                candidate?.let { collectedCandidates += it }
+                candidate ?: return
+                collectedCandidates += candidate
+                listener.onLocalCandidate()
             }
 
             override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {}
@@ -324,6 +333,9 @@ class PeerConnectionManager(
 
     fun getCollectedCandidates(): List<IceCandidate> = collectedCandidates.toList()
 
+    /** Сводка по типам локальных кандидатов — для журнала. */
+    fun localCandidateSummary(): String = candidateSummary(collectedCandidates.map { it.sdp })
+
     fun setMicrophoneEnabled(enabled: Boolean) {
         micEnabled = enabled
         localAudioTrack?.setEnabled(enabled)
@@ -355,6 +367,7 @@ class PeerConnectionManager(
             var lost = 0L
             var received = 0L
             var rtt: Double? = null
+            var route: String? = null
             for (stats in report.statsMap.values) {
                 val m = stats.members
                 when (stats.type) {
@@ -362,8 +375,11 @@ class PeerConnectionManager(
                         lost += (m["packetsLost"] as? Number)?.toLong() ?: 0L
                         received += (m["packetsReceived"] as? Number)?.toLong() ?: 0L
                     }
-                    "candidate-pair" -> if (m["nominated"] == true) {
+                    "candidate-pair" -> if (m["nominated"] == true && m["state"] == "succeeded") {
                         (m["currentRoundTripTime"] as? Number)?.let { rtt = it.toDouble() * 1000.0 }
+                        val local = report.statsMap[m["localCandidateId"]]?.members?.get("candidateType")
+                        val remote = report.statsMap[m["remoteCandidateId"]]?.members?.get("candidateType")
+                        if (local != null && remote != null) route = "$local→$remote"
                     }
                 }
             }
@@ -373,7 +389,7 @@ class PeerConnectionManager(
             lastPacketsReceived = received
             val total = dLost + dReceived
             val loss = if (total > 0) dLost * 100.0 / total else if (received > 0) 100.0 else 0.0
-            onResult(LinkStats(lossPercent = loss, rttMs = rtt))
+            onResult(LinkStats(lossPercent = loss, rttMs = rtt, route = route))
         }
     }
 

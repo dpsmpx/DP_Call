@@ -197,11 +197,9 @@ class RelayPool(
          * меняться — при правке списка перезапустите этот тест.
          */
         val DEFAULT_RELAYS = listOf(
-            "wss://offchain.pub",
             "wss://relay.snort.social",
             "wss://nostr.oxtr.dev",
             "wss://relay.nostr.net",
-            "wss://nostr.bitcoiner.social",
             "wss://nostr.sathoarder.com"
         )
     }
