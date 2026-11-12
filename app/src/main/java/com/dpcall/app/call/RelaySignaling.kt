@@ -7,6 +7,7 @@ import android.net.Network
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.dpcall.app.data.AppSettings
 import com.dpcall.app.data.IdentityRepository
 import com.dpcall.app.signaling.relay.CallMessage
 import com.dpcall.app.signaling.relay.RelayMessenger
@@ -35,6 +36,7 @@ object RelaySignaling {
     private val main = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var started = false
+    private var networkWatched = false
 
     @Volatile
     private var messenger: RelayMessenger? = null
@@ -49,15 +51,21 @@ object RelaySignaling {
         scope.launch {
             try {
                 val keys = IdentityRepository(app).loadKeys()
+                val relays = AppSettings.get(app).relays.value
+                _status.value = RelayStatus(0, relays.size)
                 val created = RelayMessenger(
                     keys = keys,
+                    relays = relays,
                     onMessage = { from, message -> main.post { CallManager.onRelayMessage(from, message) } },
                     onStatus = { connected, total -> _status.value = RelayStatus(connected, total) },
                     log = { Log.d(TAG, it) }
                 )
                 messenger = created
                 created.start()
-                watchNetwork(app)
+                if (!networkWatched) {
+                    networkWatched = true
+                    watchNetwork(app)
+                }
             } catch (e: Throwable) {
                 Log.e(TAG, "Relay signaling unavailable", e)
                 started = false
@@ -71,11 +79,20 @@ object RelaySignaling {
             cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
                     messenger?.reconnectNow()
+                    main.post { CallManager.onNetworkChanged() }
                 }
             })
         } catch (e: Exception) {
             Log.w(TAG, "Network callback unavailable", e)
         }
+    }
+
+    /** Переподключается с новым списком релеев из настроек. */
+    fun restart(context: Context) {
+        messenger?.stop()
+        messenger = null
+        started = false
+        start(context)
     }
 
     /** Проверяет соединения (например, когда приложение вернулось на экран). */

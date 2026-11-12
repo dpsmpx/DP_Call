@@ -13,10 +13,14 @@ import android.telecom.DisconnectCause
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.dpcall.app.data.AppSettings
+import com.dpcall.app.data.CallLogEntry
+import com.dpcall.app.data.CallLogRepository
+import com.dpcall.app.data.CallOutcome
 import com.dpcall.app.data.ContactsRepository
 import com.dpcall.app.data.IdentityRepository
 import com.dpcall.app.domain.Contact
 import com.dpcall.app.signaling.DecodedSignal
+import com.dpcall.app.signaling.SdpPayload
 import com.dpcall.app.signaling.SignalCodec
 import com.dpcall.app.signaling.SignalType
 import com.dpcall.app.signaling.SignalingHelper
@@ -51,6 +55,8 @@ data class CallUiState(
     val isIncoming: Boolean = false,
     val contactName: String = "",
     val contactCode: String = "",
+    /** Собеседник есть в контактах (иначе на экране предлагается его добавить). */
+    val isKnownContact: Boolean = true,
     /** Строка DPCALL1, которую нужно передать собеседнику. */
     val signalToCopy: String? = null,
     val isMuted: Boolean = false,
@@ -102,7 +108,9 @@ object CallManager {
     private const val TAG = "CallManager"
     private const val ICE_GATHER_TIMEOUT_MS = 8_000L
     private const val RING_TIMEOUT_MS = 60_000L
-    private const val RECONNECT_TIMEOUT_MS = 20_000L
+    private const val RECONNECT_TIMEOUT_MS = 30_000L
+    private const val RESTART_MIN_INTERVAL_MS = 4_000L
+    private const val RESTART_GATHER_TIMEOUT_MS = 4_000L
     private const val ENDED_SCREEN_MS = 1_800L
     private const val AUTO_OFFER_MAX_AGE_MS = 30 * 60_000L
     private const val OFFER_RESEND_MS = 5_000L
@@ -134,6 +142,20 @@ object CallManager {
     private var useFallbackRouting = false
     private var statsJob: Job? = null
     private var resendJob: Job? = null
+
+    // Пересогласование соединения (ICE restart) при смене сети или обрыве.
+    private enum class Restart { NONE, OFFERING, ANSWERING }
+    private var restart = Restart.NONE
+    private var restartSent = false
+    private var restartJob: Job? = null
+    private var lastRestartAt = 0L
+    private var lastReOfferKey = 0
+    private var lastReAnswer: String? = null
+    /** Растёт при каждом восстановлении связи — чтобы старый таймер обрыва не завершил звонок. */
+    private var connectionEpoch = 0
+
+    private lateinit var callLog: CallLogRepository
+    private var callStartedAt = 0L
     private var ringback: ToneGenerator? = null
     private lateinit var settings: AppSettings
 
@@ -158,6 +180,7 @@ object CallManager {
         audio = AudioCallManager(app)
         telecom = TelecomBridge(app, scope, telecomListener)
         settings = AppSettings.get(app)
+        callLog = CallLogRepository(app)
         _uiState.update { it.copy(noiseSuppression = settings.noiseSuppression) }
         scope.launch {
             // Запасной путь уведомлений, когда foreground-сервис звонка недоступен.
@@ -185,8 +208,8 @@ object CallManager {
                 val current = _uiState.value
                 if (current.state != CallState.IDLE && current.contactCode.isNotBlank()) {
                     list.firstOrNull { it.code.equals(current.contactCode, ignoreCase = true) }?.let { contact ->
-                        if (contact.name != current.contactName) {
-                            _uiState.update { it.copy(contactName = contact.name) }
+                        if (contact.name != current.contactName || !current.isKnownContact) {
+                            _uiState.update { it.copy(contactName = contact.name, isKnownContact = true) }
                         }
                     }
                 }
@@ -208,6 +231,7 @@ object CallManager {
         }
         val gen = beginCall()
         callId = UUID.randomUUID().toString()
+        callStartedAt = System.currentTimeMillis()
         val reachable = CodeValidator.isValid(contactCode)
         _uiState.update {
             freshState().copy(
@@ -281,8 +305,9 @@ object CallManager {
     private fun ring(offer: DecodedSignal, code: String, id: String, viaRelay: Boolean) {
         val gen = beginCall()
         callId = id
-        val name = contacts.firstOrNull { it.code.equals(code, ignoreCase = true) }?.name
-            ?: "Неизвестный абонент"
+        callStartedAt = System.currentTimeMillis()
+        val contact = contacts.firstOrNull { it.code.equals(code, ignoreCase = true) }
+        val name = contact?.name ?: "Неизвестный абонент"
         pendingOffer = offer
         _uiState.update {
             freshState().copy(
@@ -290,6 +315,7 @@ object CallManager {
                 isIncoming = true,
                 contactName = name,
                 contactCode = code,
+                isKnownContact = contact != null,
                 viaRelay = viaRelay,
                 statusMessage = "Входящий звонок"
             )
@@ -341,6 +367,9 @@ object CallManager {
             CallMessage.BUSY -> if (current.state == CallState.WAITING_FOR_ANSWER) {
                 finish(DisconnectCause.REMOTE, "Абонент занят", graceful = false)
             }
+            CallMessage.RESTART -> if (!current.isIncoming) requestIceRestart()
+            CallMessage.RE_OFFER -> message.signal?.let { onRestartOffer(it) }
+            CallMessage.RE_ANSWER -> message.signal?.let { onRestartAnswer(it) }
             CallMessage.CANCEL, CallMessage.BYE -> {
                 if (current.state == CallState.RINGING) {
                     CallNotifications.showMissedCall(app, current.contactName)
@@ -472,7 +501,7 @@ object CallManager {
         if (rejectedCallIds.size > 200) rejectedCallIds.clear()
         rejectedCallIds += callId
         sendToPeer(CallMessage.REJECT)
-        finish(DisconnectCause.REJECTED, "Вызов отклонён", graceful = false, showEnded = false)
+        finish(DisconnectCause.REJECTED, "Вызов отклонён", graceful = false, showEnded = false, outcome = CallOutcome.DECLINED)
     }
 
     private fun applyRemoteAnswer(answer: DecodedSignal) {
@@ -688,6 +717,7 @@ object CallManager {
         when (newState) {
             PeerConnection.PeerConnectionState.CONNECTED -> {
                 val first = _uiState.value.connectedAt == 0L
+                connectionEpoch++
                 stopRingback()
                 resendJob?.cancel()
                 _uiState.update {
@@ -707,19 +737,18 @@ object CallManager {
             }
             PeerConnection.PeerConnectionState.DISCONNECTED -> {
                 if (state != CallState.CONNECTED) return
-                _uiState.update {
-                    it.copy(isReconnecting = true, quality = LinkQuality.POOR, statusMessage = "Связь прервалась, восстанавливаем…")
-                }
+                markReconnecting()
+                // Короткие провалы WebRTC чинит сам; если не вышло — ищем маршруты заново.
                 val gen = generation
+                val epoch = connectionEpoch
                 main.postDelayed({
-                    if (gen == generation && _uiState.value.isReconnecting) {
-                        finish(DisconnectCause.REMOTE, "Связь потеряна", graceful = false)
-                    }
-                }, RECONNECT_TIMEOUT_MS)
+                    if (gen == generation && epoch == connectionEpoch) requestIceRestart()
+                }, 2_500)
             }
             PeerConnection.PeerConnectionState.FAILED -> {
                 if (_uiState.value.connectedAt != 0L) {
-                    finish(DisconnectCause.REMOTE, "Связь потеряна", graceful = false)
+                    markReconnecting()
+                    requestIceRestart()
                 } else {
                     fail("Соединение не установлено. Проверьте VPN и сеть, затем попробуйте снова.")
                 }
@@ -731,6 +760,139 @@ object CallManager {
             }
             else -> {}
         }
+    }
+
+    private fun markReconnecting() {
+        if (_uiState.value.isReconnecting) return
+        _uiState.update {
+            it.copy(isReconnecting = true, quality = LinkQuality.POOR, statusMessage = "Связь прервалась, восстанавливаем…")
+        }
+        val gen = generation
+        val epoch = connectionEpoch
+        main.postDelayed({
+            if (gen == generation && epoch == connectionEpoch && _uiState.value.isReconnecting) {
+                sendToPeer(CallMessage.BYE)
+                finish(DisconnectCause.REMOTE, "Связь потеряна", graceful = false)
+            }
+        }, RECONNECT_TIMEOUT_MS)
+    }
+
+    // ------------------------------------------------- пересогласование соединения
+
+    /** У телефона сменилась сеть (Wi-Fi ↔ мобильная): старые маршруты больше не работают. */
+    fun onNetworkChanged() {
+        if (state != CallState.CONNECTED) return
+        val gen = generation
+        main.postDelayed({ if (gen == generation) requestIceRestart() }, 1_500)
+    }
+
+    /**
+     * Запускает поиск маршрутов заново. Новый Offer всегда создаёт вызывавшая
+     * сторона (чтобы обе не начали одновременно); вызванная просит её об этом.
+     */
+    private fun requestIceRestart() {
+        if (state != CallState.CONNECTED || restart != Restart.NONE) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastRestartAt < RESTART_MIN_INTERVAL_MS) return
+        lastRestartAt = now
+        val gen = generation
+        // Если связь так и не вернулась — пробуем ещё раз.
+        main.postDelayed({
+            if (gen == generation && _uiState.value.isReconnecting) requestIceRestart()
+        }, 10_000)
+
+        if (_uiState.value.isIncoming) {
+            sendToPeer(CallMessage.RESTART)
+            return
+        }
+        val manager = pcm ?: return
+        restart = Restart.OFFERING
+        restartSent = false
+        manager.createRestartOffer(
+            onSuccess = { main.post { if (gen == generation) awaitRestartCandidates(gen) } },
+            onError = { main.post { if (gen == generation) restart = Restart.NONE } }
+        )
+    }
+
+    private fun awaitRestartCandidates(gen: Int) {
+        main.postDelayed({ if (gen == generation) onRestartGathered() }, RESTART_GATHER_TIMEOUT_MS)
+    }
+
+    /** Кандидаты собраны: локальное описание готово к отправке собеседнику. */
+    private fun onRestartGathered() {
+        if (restart == Restart.NONE || restartSent) return
+        val sdp = pcm?.localSdp() ?: return
+        restartSent = true
+        val gen = generation
+        restartJob?.cancel()
+        if (restart == Restart.OFFERING) {
+            val signal = SignalCodec.encode(SignalType.OFFER, SdpPayload(sdp = sdp, identity = myIdentity, callId = callId))
+            restartJob = scope.launch {
+                repeat(8) {
+                    if (gen != generation || restart != Restart.OFFERING) return@launch
+                    sendToPeer(CallMessage.RE_OFFER, signal)
+                    delay(2_500)
+                }
+                if (gen == generation && restart == Restart.OFFERING) restart = Restart.NONE
+            }
+        } else {
+            val signal = SignalCodec.encode(SignalType.ANSWER, SdpPayload(sdp = sdp, identity = myIdentity, callId = callId))
+            lastReAnswer = signal
+            restart = Restart.NONE
+            restartJob = scope.launch {
+                repeat(3) {
+                    if (gen != generation) return@launch
+                    sendToPeer(CallMessage.RE_ANSWER, signal)
+                    delay(2_000)
+                }
+            }
+        }
+    }
+
+    private fun onRestartOffer(signal: String) {
+        if (state != CallState.CONNECTED || !_uiState.value.isIncoming) return
+        val key = signal.hashCode()
+        if (key == lastReOfferKey) {
+            // Повтор уже обработанного предложения — наш ответ, видимо, потерялся.
+            lastReAnswer?.let { sendToPeer(CallMessage.RE_ANSWER, it) }
+            return
+        }
+        if (restart != Restart.NONE) return
+        val decoded = SignalCodec.decode(signal).getOrNull() ?: return
+        if (decoded.type != SignalType.OFFER) return
+        val manager = pcm ?: return
+        lastReOfferKey = key
+        lastReAnswer = null
+        restart = Restart.ANSWERING
+        restartSent = false
+        val gen = generation
+        val onError: (String) -> Unit = { main.post { if (gen == generation) restart = Restart.NONE } }
+        manager.setRemoteDescription(
+            sdp = SessionDescription(SessionDescription.Type.OFFER, decoded.payload.sdp),
+            onSuccess = {
+                main.post {
+                    if (gen != generation) return@post
+                    manager.createAnswer(
+                        onSuccess = { main.post { if (gen == generation) awaitRestartCandidates(gen) } },
+                        onError = onError
+                    )
+                }
+            },
+            onError = onError
+        )
+    }
+
+    private fun onRestartAnswer(signal: String) {
+        if (restart != Restart.OFFERING || !restartSent) return
+        val decoded = SignalCodec.decode(signal).getOrNull() ?: return
+        if (decoded.type != SignalType.ANSWER) return
+        restart = Restart.NONE
+        restartJob?.cancel()
+        pcm?.setRemoteDescription(
+            sdp = SessionDescription(SessionDescription.Type.ANSWER, decoded.payload.sdp),
+            onSuccess = {},
+            onError = { Log.w(TAG, "Restart answer rejected: $it") }
+        )
     }
 
     private fun onControlMessage(message: String) {
@@ -786,6 +948,13 @@ object CallManager {
         statsJob = null
         resendJob?.cancel()
         resendJob = null
+        restartJob?.cancel()
+        restartJob = null
+        restart = Restart.NONE
+        restartSent = false
+        lastRestartAt = 0L
+        lastReOfferKey = 0
+        lastReAnswer = null
         stopRingback()
         if (callId.isNotBlank()) {
             finishedCallIds += callId
@@ -810,8 +979,15 @@ object CallManager {
         signalFinalized = false
     }
 
-    private fun finish(telecomCause: Int, message: String, graceful: Boolean, showEnded: Boolean = true) {
+    private fun finish(
+        telecomCause: Int,
+        message: String,
+        graceful: Boolean,
+        showEnded: Boolean = true,
+        outcome: CallOutcome? = null
+    ) {
         val prev = _uiState.value
+        recordCall(prev, outcome)
         releaseResources(telecomCause, graceful)
         if (!showEnded) {
             _uiState.update { freshState() }
@@ -834,10 +1010,31 @@ object CallManager {
         }, ENDED_SCREEN_MS)
     }
 
+    /** Записывает завершившийся звонок в журнал. */
+    private fun recordCall(prev: CallUiState, outcome: CallOutcome?) {
+        if (!prev.state.isActive || prev.contactCode.isBlank()) return
+        val connected = prev.connectedAt != 0L
+        val entry = CallLogEntry(
+            code = prev.contactCode,
+            name = prev.contactName,
+            incoming = prev.isIncoming,
+            outcome = when {
+                connected -> CallOutcome.ANSWERED
+                outcome != null -> outcome
+                prev.isIncoming -> CallOutcome.MISSED
+                else -> CallOutcome.NOT_CONNECTED
+            },
+            startedAt = if (callStartedAt != 0L) callStartedAt else System.currentTimeMillis(),
+            durationSec = if (connected) (SystemClock.elapsedRealtime() - prev.connectedAt) / 1000 else 0L
+        )
+        scope.launch { runCatching { callLog.add(entry) } }
+    }
+
     private fun fail(message: String) {
         Log.e(TAG, message)
         val prev = _uiState.value
         if (prev.state.isActive) sendToPeer(CallMessage.BYE)
+        recordCall(prev, null)
         releaseResources(DisconnectCause.LOCAL, graceful = false)
         showFailure(prev.contactName, prev.contactCode, message)
     }
@@ -862,7 +1059,10 @@ object CallManager {
         override fun onConnectionChange(state: PeerConnection.PeerConnectionState) =
             onMain { CallManager.onConnectionChange(state) }
 
-        override fun onIceGatheringComplete() = onMain { finalizeLocalSignal("complete") }
+        override fun onIceGatheringComplete() = onMain {
+            finalizeLocalSignal("complete")
+            onRestartGathered()
+        }
 
         override fun onControlMessage(message: String) = onMain { CallManager.onControlMessage(message) }
 

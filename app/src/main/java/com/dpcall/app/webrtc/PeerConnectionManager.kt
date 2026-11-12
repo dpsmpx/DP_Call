@@ -3,6 +3,7 @@ package com.dpcall.app.webrtc
 import android.content.Context
 import android.media.AudioAttributes
 import android.util.Log
+import com.dpcall.app.data.AppSettings
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
 import org.webrtc.DataChannel
@@ -103,7 +104,7 @@ data class LinkStats(val lossPercent: Double, val rttMs: Double?)
  * по нему передаются «bye» при завершении и состояние микрофона.
  */
 class PeerConnectionManager(
-    context: Context,
+    private val context: Context,
     private val useTurn: Boolean = true
 ) {
     interface Listener {
@@ -133,7 +134,7 @@ class PeerConnectionManager(
     private var lastPacketsReceived = 0L
 
     fun createPeerConnection(listener: Listener, noiseSuppression: Boolean) {
-        val rtcConfig = PeerConnection.RTCConfiguration(IceServerConfig.createIceServers(useTurn)).apply {
+        val rtcConfig = PeerConnection.RTCConfiguration(IceServerConfig.createIceServers(useTurn, AppSettings.get(context).turn)).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_ONCE
             tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.ENABLED
@@ -245,14 +246,37 @@ class PeerConnectionManager(
     fun createOffer(onSuccess: (SessionDescription) -> Unit, onError: (String) -> Unit) =
         createSdp(isOffer = true, onSuccess, onError)
 
+    /**
+     * Новый Offer с перезапуском ICE: соединение ищет маршруты заново (например,
+     * после перехода с Wi-Fi на мобильную сеть), звук при этом не пересоздаётся.
+     */
+    fun createRestartOffer(onSuccess: (SessionDescription) -> Unit, onError: (String) -> Unit) =
+        createSdp(isOffer = true, onSuccess, onError, iceRestart = true)
+
+    /**
+     * Текущее локальное описание. После завершения сбора ICE оно уже содержит
+     * кандидатов, поэтому при пересогласовании их не нужно передавать отдельно.
+     */
+    fun localSdp(): String? = try {
+        peerConnection?.localDescription?.description
+    } catch (e: Exception) {
+        null
+    }
+
     fun createAnswer(onSuccess: (SessionDescription) -> Unit, onError: (String) -> Unit) =
         createSdp(isOffer = false, onSuccess, onError)
 
-    private fun createSdp(isOffer: Boolean, onSuccess: (SessionDescription) -> Unit, onError: (String) -> Unit) {
+    private fun createSdp(
+        isOffer: Boolean,
+        onSuccess: (SessionDescription) -> Unit,
+        onError: (String) -> Unit,
+        iceRestart: Boolean = false
+    ) {
         val pc = peerConnection ?: return onError("Нет соединения")
         val constraints = MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
+            if (iceRestart) mandatory.add(MediaConstraints.KeyValuePair("IceRestart", "true"))
         }
         val observer = object : SimpleSdpObserver(onError) {
             override fun onCreateSuccess(sdp: SessionDescription?) {

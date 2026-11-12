@@ -27,5 +27,10 @@ data class CallMessage(
         /** Вызывающий передумал до ответа. */
         const val CANCEL = "cancel"
         const val BYE = "bye"
+        /** Просьба к вызывающему пересогласовать соединение (сменилась сеть). */
+        const val RESTART = "restart"
+        /** Новый Offer / Answer при пересогласовании. */
+        const val RE_OFFER = "reoffer"
+        const val RE_ANSWER = "reanswer"
     }
 }

@@ -1,5 +1,6 @@
 package com.dpcall.app.webrtc
 
+import com.dpcall.app.data.TurnConfig
 import org.webrtc.PeerConnection
 
 object IceServerConfig {
@@ -24,8 +25,21 @@ object IceServerConfig {
             .createIceServer()
     )
 
-    fun createIceServers(useTurn: Boolean = true): List<PeerConnection.IceServer> {
+    /**
+     * @param custom свой TURN-сервер из настроек; добавляется к публичным.
+     */
+    fun createIceServers(useTurn: Boolean = true, custom: TurnConfig? = null): List<PeerConnection.IceServer> {
         val servers = mutableListOf<PeerConnection.IceServer>()
+        if (custom != null && custom.isValid) {
+            try {
+                servers += PeerConnection.IceServer.builder(custom.url)
+                    .setUsername(custom.username)
+                    .setPassword(custom.password)
+                    .createIceServer()
+            } catch (e: Exception) {
+                // Некорректный адрес из настроек не должен ломать звонок.
+            }
+        }
         STUN_SERVERS.forEach { url ->
             servers += PeerConnection.IceServer.builder(url).createIceServer()
         }
