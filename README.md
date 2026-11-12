@@ -104,4 +104,4 @@
 [MIT](LICENSE)
 
 [releases]: https://github.com/dpsmpx/DP_Call/releases/latest
-[fdroid]: https://f-droid.org/packages/com.dpcall.app/
+[fdroid]: https://f-droid.org/packages/com.dpsmpx.dpcall/

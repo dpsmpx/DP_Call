@@ -67,7 +67,7 @@ and a custom TURN server can be set there as well.
 | Fastlane в репозитории, есть `en-US` | Есть: описание, иконка, скриншоты, список изменений |
 | Заголовок «New app: …» | См. выше |
 | Форк публичный, ветка не защищена | Проверьте в настройках своего форка |
-| Один файл `metadata/com.dpcall.app.yml`, LF | Файл готов: [com.dpcall.app.yml](com.dpcall.app.yml) |
+| Один файл `metadata/com.dpsmpx.dpcall.yml`, LF | Файл готов: [com.dpsmpx.dpcall.yml](com.dpsmpx.dpcall.yml) |
 | Релизы с тегами, автообновление | `v1.1.1`, `AutoUpdateMode: Version` |
 | Issue tracker, контакт автора, AuthorName | Указаны в файле |
 | Reproducible Builds | Включено (`Binaries`, `AllowedAPKSigningKeys`) |

@@ -3,7 +3,7 @@
 ```
 DP_Call/
 ├── app/
-│   └── src/main/java/com/dpcall/app/
+│   └── src/main/java/com/dpsmpx/dpcall/
 │       ├── call/          # CallManager, CallService, TelecomBridge, notifications
 │       ├── data/          # DataStore repositories
 │       ├── domain/        # Identity, Contact

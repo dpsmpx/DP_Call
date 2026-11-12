@@ -9,7 +9,7 @@ F-Droid сам собирает приложение из исходников. 
 
 | Материал | Где |
 |---|---|
-| Файл метаданных для fdroiddata | [`docs/fdroid/com.dpcall.app.yml`](fdroid/com.dpcall.app.yml) |
+| Файл метаданных для fdroiddata | [`docs/fdroid/com.dpsmpx.dpcall.yml`](fdroid/com.dpsmpx.dpcall.yml) |
 | Текст заявки на английском и разбор чек-листа | [`docs/fdroid/MERGE_REQUEST.md`](fdroid/MERGE_REQUEST.md) |
 | Название, краткое и полное описание (ru, en) | `fastlane/metadata/android/{ru-RU,en-US}/` |
 | Иконка 512×512 | `…/images/icon.png` |
@@ -29,7 +29,7 @@ F-Droid сам собирает приложение из исходников. 
    версии). После выхода релиза откройте
    <https://github.com/dpsmpx/DP_Call/releases/tag/v1.1.1>, скопируйте полный хеш
    коммита (40 символов) и подставьте его в поле `commit` в
-   `docs/fdroid/com.dpcall.app.yml` вместо заглушки.
+   `docs/fdroid/com.dpsmpx.dpcall.yml` вместо заглушки.
 2. **Сверьте отпечаток ключа.** В файле метаданных указан SHA-256 сертификата, которым
    подписаны релизы:
    `f936930cdb8818d4ddd243f0d5d3a8fc046f284402406584545b490d15b1cddb`.
@@ -43,11 +43,10 @@ F-Droid сам собирает приложение из исходников. 
   уже есть пользователи; у автора есть другие приложения в F-Droid. История репозитория
   начинается 11 ноября 2026 года, так что заявку могут отложить до февраля 2027-го. Если
   у вас есть чем подтвердить исключение — напишите об этом в заявке.
-- **Идентификатор `com.dpcall.app`.** F-Droid советует идентификатор от собственного
+- **Идентификатор `com.dpsmpx.dpcall`.** F-Droid советует идентификатор от собственного
   домена и отклоняет приложения, чей идентификатор совпадает с чужим доменом. Если домен
-  `dpcall.com` не ваш, ревьюеры могут попросить сменить идентификатор (например, на
-  `io.github.dpsmpx.dpcall`). Смена означает новое приложение для уже установивших —
-  решать лучше до подачи.
+  `dpsmpx.com` принадлежит не вам, ревьюеры могут попросить заменить идентификатор на
+  `io.github.dpsmpx.dpcall` — это снова будет новое приложение для уже установивших.
 
 ## Шаги
 
@@ -68,10 +67,10 @@ F-Droid сам собирает приложение из исходников. 
 
 ### 3. Ветка и файл метаданных
 
-1. В своём форке: **Code → Branches → New branch**, имя `com.dpcall.app`, от `master`.
+1. В своём форке: **Code → Branches → New branch**, имя `com.dpsmpx.dpcall`, от `master`.
 2. Переключитесь на эту ветку, откройте папку `metadata`, нажмите **+ → New file**.
-3. Имя файла: `com.dpcall.app.yml`. Вставьте содержимое
-   [`docs/fdroid/com.dpcall.app.yml`](fdroid/com.dpcall.app.yml) без изменений.
+3. Имя файла: `com.dpsmpx.dpcall.yml`. Вставьте содержимое
+   [`docs/fdroid/com.dpsmpx.dpcall.yml`](fdroid/com.dpsmpx.dpcall.yml) без изменений.
 4. Commit message: `New app: DP Call`. Нажмите **Commit changes**.
 
 Больше ничего в форк добавлять не нужно: описание и картинки F-Droid берёт из
@@ -85,7 +84,7 @@ F-Droid сам собирает приложение из исходников. 
 
 ### 5. Заявка
 
-1. **Merge requests → New merge request**: source — ваш форк, ветка `com.dpcall.app`;
+1. **Merge requests → New merge request**: source — ваш форк, ветка `com.dpsmpx.dpcall`;
    target — `fdroid/fdroiddata`, ветка `master`.
 2. Заголовок: `New app: DP Call`.
 3. Описание: GitLab подставит шаблон; заполните его по
@@ -109,9 +108,9 @@ docker run --rm -it -v "$PWD":/repo registry.gitlab.com/fdroid/fdroidserver:buil
 # внутри контейнера:
 cd /repo
 fdroid readmeta
-fdroid rewritemeta com.dpcall.app
-fdroid lint com.dpcall.app
-fdroid build -v -l com.dpcall.app
+fdroid rewritemeta com.dpsmpx.dpcall
+fdroid lint com.dpsmpx.dpcall
+fdroid build -v -l com.dpsmpx.dpcall
 ```
 
 ## О чём, скорее всего, спросят
@@ -159,7 +158,7 @@ APK во всём, кроме служебного файла `META-INF/version-
 
 ## После публикации
 
-Страница приложения будет по адресу <https://f-droid.org/packages/com.dpcall.app/>
+Страница приложения будет по адресу <https://f-droid.org/packages/com.dpsmpx.dpcall/>
 (адрес определяется идентификатором пакета, поэтому известен заранее).
 
 В `README.md` для этого уже есть место: в разделе «Установка» уберите пометку

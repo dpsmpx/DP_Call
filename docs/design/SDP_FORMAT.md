@@ -29,4 +29,4 @@ SdpPayload:
 (см. [ADR-002](../adr/002-relay-signaling.md)) либо вручную через мессенджер.
 `SignalCodec.extract` находит строку в произвольном тексте сообщения.
 
-Модуль: `com.dpcall.app.signaling`
+Модуль: `com.dpsmpx.dpcall.signaling`

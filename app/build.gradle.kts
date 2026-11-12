@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "com.dpcall.app"
+    namespace = "com.dpsmpx.dpcall"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.dpcall.app"
+        applicationId = "com.dpsmpx.dpcall"
         minSdk = 26
         targetSdk = 35
         versionCode = 5
