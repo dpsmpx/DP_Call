@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
@@ -57,13 +59,17 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -101,6 +107,10 @@ fun HomeScreen(
     var contactToDelete by remember { mutableStateOf<Contact?>(null) }
     var contactToRename by remember { mutableStateOf<Contact?>(null) }
     var showSettings by remember { mutableStateOf(false) }
+    var showQr by remember { mutableStateOf(false) }
+    var tab by rememberSaveable { mutableIntStateOf(0) }
+    val callLog by viewModel.callLog.collectAsStateWithLifecycle()
+    val scanQr = rememberQrScanner { scanned -> viewModel.onAddCodeChange(scanned) }
     var showHelp by remember { mutableStateOf(false) }
     val appSettings = remember { AppSettings.get(context) }
     val onboardingShown by appSettings.onboardingShown.collectAsStateWithLifecycle()
@@ -158,6 +168,7 @@ fun HomeScreen(
                         OwnCodeCard(
                             code = state.identity?.value ?: "",
                             copied = state.copied,
+                            onQr = { showQr = true },
                             onCopy = { viewModel.copyCodeToClipboard() },
                             onShare = {
                                 val code = state.identity?.value ?: return@OwnCodeCard
@@ -165,15 +176,51 @@ fun HomeScreen(
                             }
                         )
                     }
-                    item(key = "header") {
-                        Text(
-                            if (state.contacts.isEmpty()) "Контакты" else "Контакты · ${state.contacts.size}",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 4.dp)
-                        )
+                    item(key = "tabs") {
+                        TabRow(
+                            selectedTabIndex = tab,
+                            containerColor = Color.Transparent,
+                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                        ) {
+                            Tab(selected = tab == 0, onClick = { tab = 0 }, text = {
+                                Text(if (state.contacts.isEmpty()) "Контакты" else "Контакты · ${state.contacts.size}")
+                            })
+                            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Журнал") })
+                        }
                     }
-                    if (state.contacts.isEmpty()) {
+                    if (tab == 1) {
+                        if (callLog.isEmpty()) {
+                            item(key = "log-empty") {
+                                Text(
+                                    "Звонков пока не было",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp)
+                                )
+                            }
+                        } else {
+                            items(callLog, key = { "log-${it.startedAt}-${it.code}" }) { entry ->
+                                // Имя берём из контактов, если он ещё есть; иначе — сохранённое в журнале.
+                                val contact = state.contacts.firstOrNull { it.code.equals(entry.code, ignoreCase = true) }
+                                val name = contact?.name ?: entry.name
+                                CallLogRow(
+                                    entry = entry,
+                                    displayName = name,
+                                    onCall = if (CodeValidator.isValid(entry.code)) {
+                                        { onCall(Contact(code = entry.code, name = name.ifBlank { entry.code.take(5) })) }
+                                    } else {
+                                        null
+                                    }
+                                )
+                            }
+                            item(key = "log-clear") {
+                                TextButton(onClick = { viewModel.clearCallLog() }, modifier = Modifier.fillMaxWidth()) {
+                                    Text("Очистить журнал")
+                                }
+                            }
+                        }
+                    } else if (state.contacts.isEmpty()) {
                         item(key = "empty") { EmptyContacts(onAdd = { viewModel.openAddDialog() }) }
                     } else {
                         items(state.contacts, key = { it.code }) { contact ->
@@ -199,6 +246,7 @@ fun HomeScreen(
             onCodeChange = viewModel::onAddCodeChange,
             onNameChange = viewModel::onAddNameChange,
             onPaste = viewModel::pasteCodeFromClipboard,
+            onScan = scanQr,
             onConfirm = viewModel::confirmAddContact,
             onDismiss = viewModel::closeAddDialog
         )
@@ -224,6 +272,10 @@ fun HomeScreen(
             },
             onDismiss = viewModel::closeIncomingDialog
         )
+    }
+
+    if (showQr) {
+        QrDialog(code = state.identity?.value.orEmpty(), onDismiss = { showQr = false })
     }
 
     if (showSettings) {
@@ -354,7 +406,7 @@ private fun SettingsDialog(relayStatus: RelayStatus, onHelp: () -> Unit, onDismi
         onDismissRequest = onDismiss,
         title = { Text("Настройки") },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
                     if (relayStatus.online) "На связи: ${relayStatus.connected} из ${relayStatus.total} релеев"
                     else "Нет связи с релеями. Проверьте интернет и VPN",
@@ -373,7 +425,7 @@ private fun SettingsDialog(relayStatus: RelayStatus, onHelp: () -> Unit, onDismi
                 )
                 SettingRow(
                     title = "Только от контактов",
-                    description = "Вызовы с незнакомых кодов молча отбрасываются",
+                    description = "Вызовы с кодов, которых нет в контактах, отбрасываются",
                     checked = contactsOnly,
                     onChange = { settings.setContactsOnly(it) }
                 )
@@ -389,6 +441,8 @@ private fun SettingsDialog(relayStatus: RelayStatus, onHelp: () -> Unit, onDismi
                         Text("Не ограничивать в фоне")
                     }
                 }
+                Spacer(Modifier.height(8.dp))
+                AdvancedSettings()
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Готово") } },
@@ -442,7 +496,7 @@ private fun OnboardingDialog(firstRun: Boolean, onDone: () -> Unit) {
                 )
                 OnboardingStep(
                     2, "Добавьте друг друга",
-                    "Кнопка «Контакт». Добавить должны оба: звонки с незнакомых кодов по умолчанию не принимаются."
+                    "Кнопка «Контакт»: вставьте код или отсканируйте QR. Звонок от того, кого нет в контактах, придёт как «Неизвестный абонент»."
                 )
                 OnboardingStep(
                     3, "Звоните",
@@ -475,7 +529,7 @@ private fun OnboardingDialog(firstRun: Boolean, onDone: () -> Unit) {
 }
 
 @Composable
-private fun OwnCodeCard(code: String, copied: Boolean, onCopy: () -> Unit, onShare: () -> Unit) {
+private fun OwnCodeCard(code: String, copied: Boolean, onQr: () -> Unit, onCopy: () -> Unit, onShare: () -> Unit) {
     Card(
         Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -515,6 +569,9 @@ private fun OwnCodeCard(code: String, copied: Boolean, onCopy: () -> Unit, onSha
                     Icon(Icons.Default.Share, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Отправить", maxLines = 1)
+                }
+                FilledTonalIconButton(onClick = onQr) {
+                    Icon(Icons.Default.QrCode2, "Показать QR-код")
                 }
             }
         }
@@ -624,7 +681,7 @@ private fun ContactItem(contact: Contact, onCall: () -> Unit, onRename: () -> Un
 private fun AddContactDialog(
     codeInput: String, nameInput: String, error: String?, isAdding: Boolean,
     onCodeChange: (String) -> Unit, onNameChange: (String) -> Unit,
-    onPaste: () -> Unit, onConfirm: () -> Unit, onDismiss: () -> Unit
+    onPaste: () -> Unit, onScan: () -> Unit, onConfirm: () -> Unit, onDismiss: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -636,7 +693,12 @@ private fun AddContactDialog(
                     label = { Text("Код собеседника") },
                     singleLine = true, modifier = Modifier.fillMaxWidth(),
                     textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
-                    trailingIcon = { IconButton(onClick = onPaste) { Icon(Icons.Default.ContentPaste, "Вставить из буфера") } }
+                    trailingIcon = {
+                        Row {
+                            IconButton(onClick = onScan) { Icon(Icons.Default.QrCodeScanner, "Сканировать QR-код") }
+                            IconButton(onClick = onPaste) { Icon(Icons.Default.ContentPaste, "Вставить из буфера") }
+                        }
+                    }
                 )
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(

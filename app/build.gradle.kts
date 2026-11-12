@@ -13,8 +13,8 @@ android {
         applicationId = "com.dpcall.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.0.1-rc1"
+        versionCode = 4
+        versionName = "1.1.0-rc1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -106,6 +106,8 @@ dependencies {
     // Сигналинг через релеи Nostr: WebSocket и ключи secp256k1
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("fr.acinq.secp256k1:secp256k1-kmp-jni-android:0.16.0")
+    // QR-коды: показ своего кода и сканирование кода собеседника
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

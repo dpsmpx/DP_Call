@@ -6,6 +6,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.dpcall.app.data.CallLogEntry
+import com.dpcall.app.data.CallLogRepository
 import com.dpcall.app.data.ContactsRepository
 import com.dpcall.app.data.IdentityRepository
 import com.dpcall.app.domain.Contact
@@ -14,7 +16,9 @@ import com.dpcall.app.util.CodeValidator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -38,6 +42,16 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val identityRepo = IdentityRepository(application)
     private val contactsRepo = ContactsRepository(application)
+
+    private val callLogRepo = CallLogRepository(application)
+
+    /** Журнал звонков, новые сверху. */
+    val callLog: StateFlow<List<CallLogEntry>> =
+        callLogRepo.entries.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun clearCallLog() {
+        viewModelScope.launch { callLogRepo.clear() }
+    }
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()

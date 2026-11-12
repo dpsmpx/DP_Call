@@ -43,9 +43,11 @@ import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhoneInTalk
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SignalCellularAlt
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -68,6 +70,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -84,6 +87,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.dpcall.app.call.CallManager
+import com.dpcall.app.data.ContactsRepository
+import com.dpcall.app.domain.Contact
+import com.dpcall.app.util.CodeValidator
+import kotlinx.coroutines.launch
 import com.dpcall.app.call.CallUiState
 import com.dpcall.app.call.LinkQuality
 import com.dpcall.app.call.SignalResult
@@ -150,8 +157,18 @@ fun CallScreen(state: CallUiState, onAccept: () -> Unit, onMinimize: () -> Unit)
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (!state.isKnownContact && state.contactCode.isNotBlank()) {
+                    Text(
+                        state.contactCode.take(5) + " … " + state.contactCode.takeLast(5),
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 Spacer(Modifier.height(6.dp))
                 StatusLine(state)
+                if (!state.isKnownContact && CodeValidator.isValid(state.contactCode)) {
+                    AddUnknownContact(state.contactCode)
+                }
                 Spacer(Modifier.height(24.dp))
 
                 when (state.state) {
@@ -191,6 +208,45 @@ fun CallScreen(state: CallUiState, onAccept: () -> Unit, onMinimize: () -> Unit)
             }
             Spacer(Modifier.height(28.dp))
         }
+    }
+}
+
+/** Звонок с кода, которого нет в контактах: предлагаем сохранить его под именем. */
+@Composable
+private fun AddUnknownContact(code: String) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var dialog by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("") }
+
+    TextButton(onClick = { dialog = true }) {
+        Icon(Icons.Default.PersonAdd, null, Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("Добавить в контакты")
+    }
+    if (dialog) {
+        AlertDialog(
+            onDismissRequest = { dialog = false },
+            title = { Text("Новый контакт") },
+            text = {
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it },
+                    label = { Text("Имя") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val contact = Contact(code = code, name = name.trim())
+                        dialog = false
+                        // Имя на экране обновится само: CallManager следит за списком контактов.
+                        scope.launch { ContactsRepository(context.applicationContext).add(contact) }
+                    },
+                    enabled = name.isNotBlank()
+                ) { Text("Добавить") }
+            },
+            dismissButton = { TextButton(onClick = { dialog = false }) { Text("Отмена") } }
+        )
     }
 }
 
