@@ -19,9 +19,32 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        // Общий отладочный ключ лежит в репозитории, чтобы сборки CI обновляли друг друга
+        // без переустановки (при переустановке теряется ключ пользователя, то есть его код).
+        // Ключ публичный — годится только для тестовых сборок.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+        // Релизный ключ берётся из переменных окружения (секреты GitHub Actions).
+        val releaseStore = System.getenv("DPCALL_KEYSTORE_FILE")
+        if (!releaseStore.isNullOrBlank()) {
+            create("release") {
+                storeFile = file(releaseStore)
+                storePassword = System.getenv("DPCALL_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("DPCALL_KEY_ALIAS")
+                keyPassword = System.getenv("DPCALL_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
+            signingConfig = signingConfigs.findByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

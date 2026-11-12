@@ -60,6 +60,11 @@
 
 Требуется Android SDK 35, minSdk 26.
 
+Каждый push в `main` собирается в GitHub Actions и публикуется в
+[Releases](../../releases) как отладочный APK (подписан общим тестовым ключом из репозитория).
+Чтобы там же появлялась подписанная релизная сборка, добавьте секреты репозитория
+`DPCALL_KEYSTORE_BASE64`, `DPCALL_KEYSTORE_PASSWORD`, `DPCALL_KEY_ALIAS`, `DPCALL_KEY_PASSWORD`.
+
 ## Лицензия
 
 MIT
