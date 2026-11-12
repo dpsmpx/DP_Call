@@ -1,6 +1,5 @@
 Categories:
-  - Phone & SMS
-  - Internet
+  - Voice & Video Chat
 License: MIT
 AuthorName: dpsmpx
 AuthorEmail: tb96ox@gmail.com
@@ -12,14 +11,17 @@ AutoName: DP Call
 
 RepoType: git
 Repo: https://github.com/dpsmpx/DP_Call.git
+Binaries: https://github.com/dpsmpx/DP_Call/releases/download/v%v/DP_Call-v%v.apk
 
 Builds:
   - versionName: 1.1.0
     versionCode: 4
-    commit: v1.1.0
+    commit: 50a17a829c39f599be5e4c7178610e252cb4a6d4
     subdir: app
     gradle:
       - yes
+
+AllowedAPKSigningKeys: f936930cdb8818d4ddd243f0d5d3a8fc046f284402406584545b490d15b1cddb
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[0-9.]+$
