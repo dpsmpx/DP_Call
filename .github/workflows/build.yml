@@ -3,6 +3,12 @@ name: Build and release
 on:
   push:
     branches: [main]
+    # Правки документации и описаний не меняют приложение — сборка не нужна.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'fastlane/**'
+      - 'LICENSE'
   workflow_dispatch:
 
 permissions:

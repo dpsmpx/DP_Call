@@ -14,12 +14,14 @@ The call request travels end-to-end encrypted through public Nostr relays. A rel
 * Mute, audio output selection: earpiece, speaker, headset, Bluetooth
 * Noise suppression in both directions, echo cancellation, Opus at 48 kHz
 * Connection quality indicator
-* Calls accepted from contacts only (by default)
+* Calls survive a network switch (Wi-Fi ↔ mobile)
+* QR codes for exchanging contacts, call history
+* Calls from codes outside your contacts ring as “Unknown caller”; a “Contacts only” mode is available
 
 <b>Good to know</b>
 
 * Voice only: no video, chats or files
 * To receive calls in the background the app keeps a persistent connection to the relays (a silent notification) — no Google Play Services or push services involved
-* Public STUN and TURN servers are used for NAT traversal
+* Public STUN servers are used for NAT traversal; when a direct connection is impossible a TURN relay is needed — you can set your own in Settings
 * The key never leaves the device; reinstalling the app changes your code
 * Interface languages: English and Russian

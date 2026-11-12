@@ -67,6 +67,15 @@ Offer with ICE restart and exchanges it over the relays (`reoffer` / `reanswer`;
 asks for it with `restart`). Media tracks are kept, so the call continues after a few
 seconds. If the connection is not back within 30 seconds the call ends.
 
+## Trust and input handling
+
+- Relay messages are authenticated by the inner envelope layer; manually exchanged DPCALL1
+  strings must carry a valid Schnorr signature of the sender's key (`SignalCodec`).
+- Only the app's own notification can ask `MainActivity` to answer a call (per-process token).
+- Signal size, decompressed size and the number of ICE candidates are bounded.
+
+See [SECURITY.md](SECURITY.md) for the threat model and known limitations.
+
 ## Local data
 
 DataStore: identity (secret wrapped by Android Keystore), contacts, call log (last 100).

@@ -14,6 +14,8 @@ DP_Call/
 │   └── src/test/          # модульные и живые (DPCALL_LIVE_RELAYS=1) тесты
 ├── docs/
 │   ├── USER_GUIDE.md      # руководство пользователя
+│   ├── SECURITY.md        # модель угроз, известные ограничения
+│   ├── PRIVACY.md         # политика конфиденциальности (RU/EN)
 │   ├── TZ.md
 │   ├── ARCHITECTURE.md
 │   ├── RELEASING.md       # выпуск версий, подпись
