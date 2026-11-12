@@ -1,5 +1,7 @@
 package com.dpcall.app.ui.home
 
+import androidx.compose.ui.res.stringResource
+import com.dpcall.app.R
 import android.graphics.Bitmap
 import android.text.format.DateUtils
 import android.widget.Toast
@@ -86,13 +88,13 @@ fun QrDialog(code: String, onDismiss: () -> Unit) {
     val bitmap = remember(code) { qrBitmap(code) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Ваш код") },
+        title = { Text(stringResource(R.string.your_code)) },
         text = {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 if (bitmap != null) {
                     Image(
                         bitmap = bitmap.asImageBitmap(),
-                        contentDescription = "QR-код",
+                        contentDescription = stringResource(R.string.qr_code),
                         modifier = Modifier
                             .size(260.dp)
                             .background(Color.White, RoundedCornerShape(16.dp))
@@ -101,21 +103,21 @@ fun QrDialog(code: String, onDismiss: () -> Unit) {
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "Собеседник сканирует этот код в окне «Новый контакт»",
+                    stringResource(R.string.qr_hint),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } }
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) } }
     )
 }
 
 /** Возвращает функцию запуска сканера; [onCode] получает распознанный код собеседника. */
 @Composable
 fun rememberQrScanner(onCode: (String) -> Unit): () -> Unit {
-    val prompt = "Наведите камеру на QR-код собеседника"
+    val prompt = stringResource(R.string.qr_scan_prompt)
     val launcher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.let { onCode(CodeValidator.normalize(it)) }
     }
@@ -143,9 +145,9 @@ fun CallLogRow(entry: CallLogEntry, displayName: String, onCall: (() -> Unit)?) 
     }
     val result = when (entry.outcome) {
         CallOutcome.ANSWERED -> DateUtils.formatElapsedTime(entry.durationSec)
-        CallOutcome.MISSED -> "Пропущенный"
-        CallOutcome.DECLINED -> "Отклонён"
-        CallOutcome.NOT_CONNECTED -> if (entry.incoming) "Не состоялся" else "Нет ответа"
+        CallOutcome.MISSED -> stringResource(R.string.log_missed)
+        CallOutcome.DECLINED -> stringResource(R.string.log_declined)
+        CallOutcome.NOT_CONNECTED -> if (entry.incoming) stringResource(R.string.log_not_connected) else stringResource(R.string.no_answer)
     }
     val time = DateUtils.formatDateTime(
         context, entry.startedAt,
@@ -184,7 +186,7 @@ fun CallLogRow(entry: CallLogEntry, displayName: String, onCall: (() -> Unit)?) 
             }
             if (onCall != null) {
                 IconButton(onClick = onCall) {
-                    Icon(Icons.Default.Call, "Позвонить", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.Call, stringResource(R.string.call_action), tint = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -202,23 +204,22 @@ fun AdvancedSettings() {
     var expanded by remember { mutableStateOf(false) }
 
     TextButton(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth()) {
-        Text("Дополнительно", Modifier.weight(1f))
+        Text(stringResource(R.string.advanced), Modifier.weight(1f))
         Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null)
     }
     if (!expanded) return
 
-    val saved = "Сохранено"
-    val relaysInvalid = "Нужен хотя бы один адрес вида wss://…"
-    val turnInvalid = "Адрес должен начинаться с turn: или turns:"
-    val reportTitle = "Отправить журнал ошибок"
+    val saved = stringResource(R.string.saved)
+    val relaysInvalid = stringResource(R.string.relays_invalid)
+    val turnInvalid = stringResource(R.string.turn_invalid)
+    val reportTitle = stringResource(R.string.send_error_log)
 
     // --- TURN
     var turn by remember { mutableStateOf(settings.turn) }
     var turnError by remember { mutableStateOf<String?>(null) }
-    Text("Свой TURN-сервер", style = MaterialTheme.typography.titleSmall)
+    Text(stringResource(R.string.turn_title), style = MaterialTheme.typography.titleSmall)
     Text(
-        "Нужен, когда прямое соединение не устанавливается (строгий NAT). " +
-            "Без него используется бесплатный публичный сервер. Применяется со следующего звонка.",
+        stringResource(R.string.turn_desc),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
@@ -226,7 +227,7 @@ fun AdvancedSettings() {
     OutlinedTextField(
         value = turn.url,
         onValueChange = { turn = turn.copy(url = it); turnError = null },
-        label = { Text("Адрес") },
+        label = { Text(stringResource(R.string.address)) },
         placeholder = { Text("turn:example.org:3478") },
         singleLine = true,
         isError = turnError != null,
@@ -236,11 +237,11 @@ fun AdvancedSettings() {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(
             value = turn.username, onValueChange = { turn = turn.copy(username = it) },
-            label = { Text("Логин") }, singleLine = true, modifier = Modifier.weight(1f)
+            label = { Text(stringResource(R.string.username)) }, singleLine = true, modifier = Modifier.weight(1f)
         )
         OutlinedTextField(
             value = turn.password, onValueChange = { turn = turn.copy(password = it) },
-            label = { Text("Пароль") }, singleLine = true, modifier = Modifier.weight(1f)
+            label = { Text(stringResource(R.string.password)) }, singleLine = true, modifier = Modifier.weight(1f)
         )
     }
     Spacer(Modifier.height(6.dp))
@@ -254,17 +255,16 @@ fun AdvancedSettings() {
             }
         },
         modifier = Modifier.fillMaxWidth()
-    ) { Text("Сохранить TURN") }
+    ) { Text(stringResource(R.string.turn_save)) }
 
     Spacer(Modifier.height(16.dp))
 
     // --- релеи
     var relays by remember { mutableStateOf(settings.relays.value.joinToString("\n")) }
     var relaysError by remember { mutableStateOf<String?>(null) }
-    Text("Релеи", style = MaterialTheme.typography.titleSmall)
+    Text(stringResource(R.string.relays), style = MaterialTheme.typography.titleSmall)
     Text(
-        "Серверы Nostr, через которые доставляется вызов. По одному в строке. " +
-            "У вас и у собеседника должен совпадать хотя бы один.",
+        stringResource(R.string.relays_desc),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
@@ -288,7 +288,7 @@ fun AdvancedSettings() {
                 RelaySignaling.restart(context)
             },
             modifier = Modifier.weight(1f)
-        ) { Text("По умолчанию") }
+        ) { Text(stringResource(R.string.defaults)) }
         FilledTonalButton(
             onClick = {
                 if (settings.setRelays(relays)) {
@@ -300,16 +300,15 @@ fun AdvancedSettings() {
                 }
             },
             modifier = Modifier.weight(1f)
-        ) { Text("Сохранить") }
+        ) { Text(stringResource(R.string.save)) }
     }
 
     Spacer(Modifier.height(16.dp))
 
     // --- диагностика
-    Text("Диагностика", style = MaterialTheme.typography.titleSmall)
+    Text(stringResource(R.string.diagnostics), style = MaterialTheme.typography.titleSmall)
     Text(
-        "Приложение ничего не отправляет само. Журнал ошибок хранится на устройстве; " +
-            "им можно поделиться вручную, если что-то работает не так.",
+        stringResource(R.string.diagnostics_desc),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
@@ -322,5 +321,5 @@ fun AdvancedSettings() {
             }
         },
         modifier = Modifier.fillMaxWidth()
-    ) { Text("Отправить журнал ошибок") }
+    ) { Text(stringResource(R.string.send_error_log)) }
 }

@@ -1,5 +1,6 @@
 package com.dpcall.app.ui
 
+import com.dpcall.app.R
 import android.Manifest
 import android.content.ClipboardManager
 import android.content.Context
@@ -48,7 +49,7 @@ class MainActivity : ComponentActivity() {
         if (granted) {
             action?.invoke()
         } else {
-            Toast.makeText(this, "Без доступа к микрофону позвонить не получится", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.mic_required), Toast.LENGTH_LONG).show()
         }
     }
 
@@ -143,7 +144,7 @@ class MainActivity : ComponentActivity() {
             if (!SignalCodec.looksLikeSignal(SignalCodec.extract(text) ?: return)) return
             when (CallManager.handleSignal(text, auto = true)) {
                 SignalResult.AnswerApplied ->
-                    Toast.makeText(this, "Ответ собеседника получен", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.answer_received), Toast.LENGTH_SHORT).show()
                 else -> {}
             }
         } catch (e: Exception) {

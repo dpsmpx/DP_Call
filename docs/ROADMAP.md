@@ -35,14 +35,18 @@
 - GitHub Actions build, GitHub Releases
 - F-Droid metadata and submission guide
 
+## Stage 3.1 — v1.1.0 (implemented, device testing pending)
+- R8 minification, ARM-only release APK
+- ICE restart on network change
+- QR codes, call history, unknown-caller prompt
+- Custom TURN server, configurable relay list, local error log export
+- English UI, privacy policy, reproducible build
+
 ## Stage 4 — Hardening
-- F-Droid inclusion; app screenshots for the store listing
+- Security and code audit before the public release
 - Own release signing key
-- Enable R8 after testing calls on a minified build
-- Configurable relay list and TURN toggle in settings
-- English UI translation (strings are currently hard-coded in Russian)
+- F-Droid inclusion; app screenshots for the store listing
 - Stress tests on real networks, Doze and vendor battery savers
 
 ## Later
 - Optional Tor transport for signaling (maximum privacy mode)
-- Call history

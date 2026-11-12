@@ -1,5 +1,6 @@
 package com.dpcall.app.call
 
+import com.dpcall.app.R
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
@@ -226,7 +227,7 @@ object CallManager {
     fun startOutgoing(contactName: String, contactCode: String) {
         if (state.isActive) return
         if (!hasMicPermission()) {
-            showFailure(contactName, contactCode, "Нет доступа к микрофону. Разрешите его в настройках приложения.")
+            showFailure(contactName, contactCode, app.getString(R.string.error_mic_permission))
             return
         }
         val gen = beginCall()
@@ -240,7 +241,7 @@ object CallManager {
                 contactName = contactName,
                 contactCode = contactCode,
                 viaRelay = reachable,
-                statusMessage = if (reachable) "Вызываем…" else "Готовим приглашение…"
+                statusMessage = if (reachable) app.getString(R.string.status_calling) else app.getString(R.string.status_preparing_invite)
             )
         }
         ensureService()
@@ -250,7 +251,7 @@ object CallManager {
         val manager = createPeer(gen) ?: return
         manager.createOffer(
             onSuccess = { sdp -> main.post { if (gen == generation) onLocalSdpReady(sdp) } },
-            onError = { err -> main.post { if (gen == generation) fail(humanizeError(err, "Не удалось создать приглашение")) } }
+            onError = { err -> main.post { if (gen == generation) fail(humanizeError(err, app.getString(R.string.error_create_invite))) } }
         )
     }
 
@@ -266,7 +267,7 @@ object CallManager {
     fun handleSignal(raw: String, auto: Boolean = false, autoAccept: Boolean = false): SignalResult {
         val text = SignalCodec.extract(raw) ?: raw
         val decoded = SignalCodec.decode(text).getOrElse {
-            return SignalResult.Invalid(it.message ?: "Повреждённый или неверный код")
+            return SignalResult.Invalid(app.getString(R.string.error_bad_signal))
         }
         val key = text.filterNot { it.isWhitespace() }.hashCode()
         val remoteId = decoded.payload.identity
@@ -307,7 +308,7 @@ object CallManager {
         callId = id
         callStartedAt = System.currentTimeMillis()
         val contact = contacts.firstOrNull { it.code.equals(code, ignoreCase = true) }
-        val name = contact?.name ?: "Неизвестный абонент"
+        val name = contact?.name ?: app.getString(R.string.unknown_caller)
         pendingOffer = offer
         _uiState.update {
             freshState().copy(
@@ -317,7 +318,7 @@ object CallManager {
                 contactCode = code,
                 isKnownContact = contact != null,
                 viaRelay = viaRelay,
-                statusMessage = "Входящий звонок"
+                statusMessage = app.getString(R.string.incoming_call)
             )
         }
         ensureService()
@@ -325,7 +326,7 @@ object CallManager {
         main.postDelayed({
             if (gen == generation && state == CallState.RINGING) {
                 CallNotifications.showMissedCall(app, name)
-                finish(DisconnectCause.MISSED, "Пропущенный звонок", graceful = false)
+                finish(DisconnectCause.MISSED, app.getString(R.string.missed_call), graceful = false)
             }
         }, RING_TIMEOUT_MS)
     }
@@ -347,13 +348,13 @@ object CallManager {
         }
         when (message.t) {
             CallMessage.RINGING -> if (current.state == CallState.WAITING_FOR_ANSWER && !current.remoteRinging) {
-                _uiState.update { it.copy(remoteRinging = true, peerUnreachable = false, statusMessage = "Звонит…") }
+                _uiState.update { it.copy(remoteRinging = true, peerUnreachable = false, statusMessage = app.getString(R.string.status_ringing)) }
                 startRingback()
                 val gen = generation
                 main.postDelayed({
                     if (gen == generation && state == CallState.WAITING_FOR_ANSWER) {
                         sendToPeer(CallMessage.CANCEL)
-                        finish(DisconnectCause.LOCAL, "Нет ответа", graceful = false)
+                        finish(DisconnectCause.LOCAL, app.getString(R.string.no_answer), graceful = false)
                     }
                 }, NO_ANSWER_TIMEOUT_MS)
             }
@@ -362,10 +363,10 @@ object CallManager {
                 if (decoded != null && decoded.type == SignalType.ANSWER) applyRemoteAnswer(decoded)
             }
             CallMessage.REJECT -> if (current.state == CallState.WAITING_FOR_ANSWER) {
-                finish(DisconnectCause.REMOTE, "Вызов отклонён", graceful = false)
+                finish(DisconnectCause.REMOTE, app.getString(R.string.call_declined), graceful = false)
             }
             CallMessage.BUSY -> if (current.state == CallState.WAITING_FOR_ANSWER) {
-                finish(DisconnectCause.REMOTE, "Абонент занят", graceful = false)
+                finish(DisconnectCause.REMOTE, app.getString(R.string.peer_busy), graceful = false)
             }
             CallMessage.RESTART -> if (!current.isIncoming) requestIceRestart()
             CallMessage.RE_OFFER -> message.signal?.let { onRestartOffer(it) }
@@ -375,7 +376,7 @@ object CallManager {
                     CallNotifications.showMissedCall(app, current.contactName)
                     finish(DisconnectCause.MISSED, "", graceful = false, showEnded = false)
                 } else {
-                    finish(DisconnectCause.REMOTE, "Собеседник завершил звонок", graceful = false)
+                    finish(DisconnectCause.REMOTE, app.getString(R.string.peer_ended), graceful = false)
                 }
             }
         }
@@ -472,7 +473,7 @@ object CallManager {
         val gen = generation
         pendingOffer = null
 
-        _uiState.update { it.copy(state = CallState.CREATING_ANSWER, statusMessage = "Соединяемся…") }
+        _uiState.update { it.copy(state = CallState.CREATING_ANSWER, statusMessage = app.getString(R.string.status_connecting)) }
         // Приложение сейчас на экране — сервис с доступом к микрофону точно запустится.
         ensureService()
         telecom.answer()
@@ -487,11 +488,11 @@ object CallManager {
                     offer.payload.candidates.forEach { addRemoteCandidate(it) }
                     manager.createAnswer(
                         onSuccess = { sdp -> main.post { if (gen == generation) onLocalSdpReady(sdp) } },
-                        onError = { err -> main.post { if (gen == generation) fail(humanizeError(err, "Не удалось создать ответ")) } }
+                        onError = { err -> main.post { if (gen == generation) fail(humanizeError(err, app.getString(R.string.error_create_answer))) } }
                     )
                 }
             },
-            onError = { err -> main.post { if (gen == generation) fail(humanizeError(err, "Не удалось применить приглашение")) } }
+            onError = { err -> main.post { if (gen == generation) fail(humanizeError(err, app.getString(R.string.error_apply_invite))) } }
         )
         return true
     }
@@ -501,7 +502,7 @@ object CallManager {
         if (rejectedCallIds.size > 200) rejectedCallIds.clear()
         rejectedCallIds += callId
         sendToPeer(CallMessage.REJECT)
-        finish(DisconnectCause.REJECTED, "Вызов отклонён", graceful = false, showEnded = false, outcome = CallOutcome.DECLINED)
+        finish(DisconnectCause.REJECTED, app.getString(R.string.call_declined), graceful = false, showEnded = false, outcome = CallOutcome.DECLINED)
     }
 
     private fun applyRemoteAnswer(answer: DecodedSignal) {
@@ -513,7 +514,7 @@ object CallManager {
                 state = CallState.CONNECTING,
                 signalToCopy = null,
                 peerUnreachable = false,
-                statusMessage = "Соединяемся…",
+                statusMessage = app.getString(R.string.status_connecting),
                 errorMessage = null
             )
         }
@@ -522,7 +523,7 @@ object CallManager {
             onSuccess = {
                 main.post { if (gen == generation) answer.payload.candidates.forEach { addRemoteCandidate(it) } }
             },
-            onError = { err -> main.post { if (gen == generation) fail(humanizeError(err, "Не удалось применить ответ")) } }
+            onError = { err -> main.post { if (gen == generation) fail(humanizeError(err, app.getString(R.string.error_apply_answer))) } }
         )
     }
 
@@ -586,7 +587,7 @@ object CallManager {
             (current.state == CallState.CREATING_OFFER || current.state == CallState.WAITING_FOR_ANSWER)
         pcm?.sendControl(MSG_BYE)
         sendToPeer(if (notAnsweredYet) CallMessage.CANCEL else CallMessage.BYE)
-        finish(DisconnectCause.LOCAL, "Звонок завершён", graceful = true)
+        finish(DisconnectCause.LOCAL, app.getString(R.string.call_ended), graceful = true)
     }
 
     /** Закрывает экран завершённого / неудачного звонка. */
@@ -631,14 +632,14 @@ object CallManager {
             manager
         } catch (e: Throwable) {
             Log.e(TAG, "createPeer failed", e)
-            fail("Не удалось запустить звонок (${e.message ?: e.javaClass.simpleName})")
+            fail(app.getString(R.string.error_start_call, e.message ?: e.javaClass.simpleName))
             null
         }
     }
 
     private fun onLocalSdpReady(sdp: SessionDescription) {
         pendingLocalSdp = sdp
-        if (!_uiState.value.viaRelay) _uiState.update { it.copy(statusMessage = "Ищем маршруты связи…") }
+        if (!_uiState.value.viaRelay) _uiState.update { it.copy(statusMessage = app.getString(R.string.status_gathering)) }
         val gen = generation
         main.postDelayed({
             if (gen == generation) finalizeLocalSignal("timeout")
@@ -672,10 +673,10 @@ object CallManager {
                 state = if (isOffer) CallState.WAITING_FOR_ANSWER else CallState.CONNECTING,
                 signalToCopy = signal,
                 statusMessage = when {
-                    !isOffer && it.viaRelay -> "Соединяемся…"
-                    !isOffer -> "Отправьте ответ собеседнику"
-                    it.viaRelay -> "Вызываем…"
-                    else -> "Отправьте приглашение собеседнику"
+                    !isOffer && it.viaRelay -> app.getString(R.string.status_connecting)
+                    !isOffer -> app.getString(R.string.status_send_answer)
+                    it.viaRelay -> app.getString(R.string.status_calling)
+                    else -> app.getString(R.string.status_send_invite)
                 }
             )
         }
@@ -687,7 +688,7 @@ object CallManager {
                 done = { state != CallState.WAITING_FOR_ANSWER || _uiState.value.remoteRinging },
                 onExhausted = {
                     _uiState.update {
-                        it.copy(peerUnreachable = true, statusMessage = "Абонент не в сети")
+                        it.copy(peerUnreachable = true, statusMessage = app.getString(R.string.peer_offline))
                     }
                 }
             )
@@ -726,7 +727,7 @@ object CallManager {
                         signalToCopy = null,
                         isReconnecting = false,
                         connectedAt = if (first) SystemClock.elapsedRealtime() else it.connectedAt,
-                        statusMessage = "На линии",
+                        statusMessage = app.getString(R.string.status_connected),
                         errorMessage = null
                     )
                 }
@@ -750,12 +751,12 @@ object CallManager {
                     markReconnecting()
                     requestIceRestart()
                 } else {
-                    fail("Соединение не установлено. Проверьте VPN и сеть, затем попробуйте снова.")
+                    fail(app.getString(R.string.error_no_connection))
                 }
             }
             PeerConnection.PeerConnectionState.CONNECTING -> {
                 if (state == CallState.CONNECTING && _uiState.value.signalToCopy == null) {
-                    _uiState.update { it.copy(statusMessage = "Соединяемся…") }
+                    _uiState.update { it.copy(statusMessage = app.getString(R.string.status_connecting)) }
                 }
             }
             else -> {}
@@ -765,14 +766,14 @@ object CallManager {
     private fun markReconnecting() {
         if (_uiState.value.isReconnecting) return
         _uiState.update {
-            it.copy(isReconnecting = true, quality = LinkQuality.POOR, statusMessage = "Связь прервалась, восстанавливаем…")
+            it.copy(isReconnecting = true, quality = LinkQuality.POOR, statusMessage = app.getString(R.string.status_reconnecting))
         }
         val gen = generation
         val epoch = connectionEpoch
         main.postDelayed({
             if (gen == generation && epoch == connectionEpoch && _uiState.value.isReconnecting) {
                 sendToPeer(CallMessage.BYE)
-                finish(DisconnectCause.REMOTE, "Связь потеряна", graceful = false)
+                finish(DisconnectCause.REMOTE, app.getString(R.string.connection_lost), graceful = false)
             }
         }, RECONNECT_TIMEOUT_MS)
     }
@@ -898,7 +899,7 @@ object CallManager {
     private fun onControlMessage(message: String) {
         when {
             message == MSG_BYE -> {
-                if (state.isActive) finish(DisconnectCause.REMOTE, "Собеседник завершил звонок", graceful = false)
+                if (state.isActive) finish(DisconnectCause.REMOTE, app.getString(R.string.peer_ended), graceful = false)
             }
             message.startsWith(MSG_MUTE) -> {
                 _uiState.update { it.copy(isRemoteMuted = message.endsWith("1")) }
@@ -933,9 +934,9 @@ object CallManager {
         val lower = raw.lowercase()
         return when {
             "permission" in lower || "record" in lower ->
-                "Нет доступа к микрофону. Разрешите его в настройках приложения."
+                app.getString(R.string.error_mic_permission)
             "network" in lower || "ice" in lower ->
-                "Проблема с сетью. Проверьте VPN и интернет."
+                app.getString(R.string.error_network)
             raw.isBlank() -> fallback
             else -> "$fallback ($raw)"
         }
@@ -1046,7 +1047,7 @@ object CallManager {
                 contactName = name,
                 contactCode = code,
                 errorMessage = message,
-                statusMessage = "Не удалось соединиться"
+                statusMessage = app.getString(R.string.status_failed)
             )
         }
     }

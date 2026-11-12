@@ -55,6 +55,23 @@ send the DPCALL1 string manually (share sheet, clipboard pickup or paste).
 - A negotiated data channel (`id=0`) carries `bye` (instant hang-up on both sides) and the
   remote mute state.
 
+## Network changes
+
+When the connection drops or the default network changes, the caller side creates a new
+Offer with ICE restart and exchanges it over the relays (`reoffer` / `reanswer`; the callee
+asks for it with `restart`). Media tracks are kept, so the call continues after a few
+seconds. If the connection is not back within 30 seconds the call ends.
+
+## Local data
+
+DataStore: identity (secret wrapped by Android Keystore), contacts, call log (last 100).
+SharedPreferences: settings (relays, custom TURN, toggles). Nothing is backed up.
+Crashes are written to a local file; the user can share a report manually (`Diagnostics`).
+
+## Localization
+
+All UI text lives in `res/values/strings.xml` (English, default) and `res/values-ru/`.
+
 ## Audio quality
 
 - Capture: WebRTC Audio Processing — echo cancellation (hardware when available), noise
@@ -68,7 +85,7 @@ send the DPCALL1 string manually (share sheet, clipboard pickup or paste).
 ## ICE
 
 - STUN: Google public
-- TURN: optional public openrelay (no self-hosted servers)
+- TURN: public openrelay, plus an optional user-provided TURN server from Settings
 
 ## Constraints
 

@@ -22,4 +22,4 @@ The call request travels end-to-end encrypted through public Nostr relays. A rel
 * To receive calls in the background the app keeps a persistent connection to the relays (a silent notification) — no Google Play Services or push services involved
 * Public STUN and TURN servers are used for NAT traversal
 * The key never leaves the device; reinstalling the app changes your code
-* The interface is in Russian
+* Interface languages: English and Russian

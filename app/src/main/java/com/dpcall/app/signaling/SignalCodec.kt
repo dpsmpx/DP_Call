@@ -30,7 +30,7 @@ object SignalCodec {
             val cleaned = raw.trim().replace(Regex("\\s+"), "")
             val parts = cleaned.split('.', limit = 3)
             if (parts.size != 3) {
-                return Result.failure(SignalException("Неверный формат строки"))
+                return Result.failure(SignalException("Malformed signal string"))
             }
 
             val (prefix, typeCode, payloadB64) = parts
@@ -38,17 +38,17 @@ object SignalCodec {
             if (prefix != PREFIX) {
                 if (prefix.startsWith("DPCALL") && prefix != PREFIX) {
                     return Result.failure(
-                        SignalException("Неподдерживаемая версия формата: $prefix")
+                        SignalException("Unsupported format version: $prefix")
                     )
                 }
-                return Result.failure(SignalException("Неизвестный префикс"))
+                return Result.failure(SignalException("Unknown prefix"))
             }
 
             val type = SignalType.fromCode(typeCode.firstOrNull() ?: ' ')
-                ?: return Result.failure(SignalException("Неизвестный тип сообщения: $typeCode"))
+                ?: return Result.failure(SignalException("Unknown message type: $typeCode"))
 
             if (payloadB64.isBlank()) {
-                return Result.failure(SignalException("Пустой payload"))
+                return Result.failure(SignalException("Empty payload"))
             }
 
             val compressed = Base64.getUrlDecoder().decode(payloadB64.trimEnd('='))
@@ -58,14 +58,14 @@ object SignalCodec {
             )
 
             if (payload.sdp.isBlank()) {
-                return Result.failure(SignalException("SDP отсутствует"))
+                return Result.failure(SignalException("SDP is missing"))
             }
 
             Result.success(DecodedSignal(type = type, payload = payload))
         } catch (e: SignalException) {
             Result.failure(e)
         } catch (e: Exception) {
-            Result.failure(SignalException("Повреждённый или неверный код", e))
+            Result.failure(SignalException("Damaged or invalid code", e))
         }
     }
 

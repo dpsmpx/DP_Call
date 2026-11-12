@@ -20,6 +20,9 @@ private val Context.contactsDataStore: DataStore<Preferences> by preferencesData
  * Локальное хранилище контактов.
  * Список сериализуется в JSON и сохраняется в DataStore.
  */
+/** Контакт с таким кодом уже существует. */
+class DuplicateContactException : IllegalStateException("Duplicate contact")
+
 class ContactsRepository(private val context: Context) {
 
     private val keyContacts = stringPreferencesKey("contacts_list")
@@ -46,7 +49,7 @@ class ContactsRepository(private val context: Context) {
                 } ?: emptyList()
 
                 if (current.any { it.code.equals(contact.code, ignoreCase = true) }) {
-                    throw IllegalStateException("Контакт с таким кодом уже есть")
+                    throw DuplicateContactException()
                 }
 
                 val updated = current + contact

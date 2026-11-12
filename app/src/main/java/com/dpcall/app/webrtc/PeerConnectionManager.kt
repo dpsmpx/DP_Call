@@ -169,7 +169,7 @@ class PeerConnectionManager(
             override fun onDataChannel(dc: DataChannel?) {}
             override fun onRenegotiationNeeded() {}
             override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {}
-        }) ?: throw IllegalStateException("PeerConnection не создан")
+        }) ?: throw IllegalStateException("PeerConnection was not created")
         peerConnection = pc
 
         RtcEngine.setReceiveNoiseSuppression(noiseSuppression)
@@ -272,7 +272,7 @@ class PeerConnectionManager(
         onError: (String) -> Unit,
         iceRestart: Boolean = false
     ) {
-        val pc = peerConnection ?: return onError("Нет соединения")
+        val pc = peerConnection ?: return onError("No peer connection")
         val constraints = MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
@@ -280,7 +280,7 @@ class PeerConnectionManager(
         }
         val observer = object : SimpleSdpObserver(onError) {
             override fun onCreateSuccess(sdp: SessionDescription?) {
-                sdp ?: return onError("Пустой SDP")
+                sdp ?: return onError("Empty SDP")
                 peerConnection?.setLocalDescription(object : SimpleSdpObserver(onError) {
                     override fun onSetSuccess() = onSuccess(sdp)
                 }, sdp)
@@ -290,7 +290,7 @@ class PeerConnectionManager(
     }
 
     fun setRemoteDescription(sdp: SessionDescription, onSuccess: () -> Unit, onError: (String) -> Unit) {
-        val pc = peerConnection ?: return onError("Нет соединения")
+        val pc = peerConnection ?: return onError("No peer connection")
         val tuned = SessionDescription(sdp.type, SdpTuning.tuneOpus(sdp.description))
         pc.setRemoteDescription(object : SimpleSdpObserver(onError) {
             override fun onSetSuccess() = onSuccess()

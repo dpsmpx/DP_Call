@@ -1,5 +1,6 @@
 package com.dpcall.app.call
 
+import com.dpcall.app.R
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
@@ -26,7 +27,7 @@ class SignalReceiverActivity : Activity() {
         }?.toString().orEmpty()
 
         if (text.isBlank()) {
-            toast("В сообщении нет кода DP Call")
+            toast(getString(R.string.share_no_code))
         } else {
             when (val result = CallManager.handleSignal(text)) {
                 SignalResult.Ringing -> {
@@ -35,9 +36,9 @@ class SignalReceiverActivity : Activity() {
                 }
                 SignalResult.AnswerApplied -> openCallScreen()
                 SignalResult.Ignored -> openCallScreen()
-                SignalResult.Own -> toast("Это ваш собственный код — отправьте его собеседнику")
-                SignalResult.Busy -> toast("Сначала завершите текущий звонок")
-                SignalResult.Unexpected -> toast("Это ответ на звонок, но вы сейчас никому не звоните")
+                SignalResult.Own -> toast(getString(R.string.share_own_code))
+                SignalResult.Busy -> toast(getString(R.string.finish_current_call))
+                SignalResult.Unexpected -> toast(getString(R.string.share_unexpected_answer))
                 is SignalResult.Invalid -> toast(result.message)
             }
         }

@@ -1,5 +1,7 @@
 package com.dpcall.app.ui.call
 
+import androidx.compose.ui.res.stringResource
+import com.dpcall.app.R
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -150,7 +152,7 @@ fun CallScreen(state: CallUiState, onAccept: () -> Unit, onMinimize: () -> Unit)
                 )
                 Spacer(Modifier.height(20.dp))
                 Text(
-                    state.contactName.ifBlank { "Звонок" },
+                    state.contactName.ifBlank { stringResource(R.string.call) },
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.SemiBold,
                     textAlign = TextAlign.Center,
@@ -175,10 +177,9 @@ fun CallScreen(state: CallUiState, onAccept: () -> Unit, onMinimize: () -> Unit)
                     CallState.WAITING_FOR_ANSWER -> state.signalToCopy?.let { signal ->
                         ManualFallback(
                             automatic = state.viaRelay && !state.peerUnreachable,
-                            label = "Отправить приглашение вручную",
+                            label = stringResource(R.string.send_invite_manually),
                             hint = if (state.peerUnreachable) {
-                                "Вызов не дошёл: приложение собеседника не на связи. " +
-                                    "Отправьте приглашение через мессенджер — он ответит, когда увидит."
+                                stringResource(R.string.peer_offline_hint)
                             } else {
                                 null
                             }
@@ -187,7 +188,7 @@ fun CallScreen(state: CallUiState, onAccept: () -> Unit, onMinimize: () -> Unit)
                     CallState.CONNECTING -> state.signalToCopy?.let { signal ->
                         ManualFallback(
                             automatic = state.viaRelay,
-                            label = "Отправить ответ вручную",
+                            label = stringResource(R.string.send_answer_manually),
                             hint = null
                         ) { AnswerExchange(signal) }
                     }
@@ -201,7 +202,7 @@ fun CallScreen(state: CallUiState, onAccept: () -> Unit, onMinimize: () -> Unit)
                 state.state == CallState.RINGING -> IncomingControls(onAccept)
                 state.state == CallState.FAILED ->
                     Button(onClick = { CallManager.dismiss() }, modifier = Modifier.widthIn(min = 200.dp)) {
-                        Text("Закрыть")
+                        Text(stringResource(R.string.close))
                     }
                 state.state == CallState.ENDED -> {}
                 else -> InCallControls(state)
@@ -222,16 +223,16 @@ private fun AddUnknownContact(code: String) {
     TextButton(onClick = { dialog = true }) {
         Icon(Icons.Default.PersonAdd, null, Modifier.size(18.dp))
         Spacer(Modifier.width(8.dp))
-        Text("Добавить в контакты")
+        Text(stringResource(R.string.add_to_contacts))
     }
     if (dialog) {
         AlertDialog(
             onDismissRequest = { dialog = false },
-            title = { Text("Новый контакт") },
+            title = { Text(stringResource(R.string.new_contact)) },
             text = {
                 OutlinedTextField(
                     value = name, onValueChange = { name = it },
-                    label = { Text("Имя") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                    label = { Text(stringResource(R.string.name)) }, singleLine = true, modifier = Modifier.fillMaxWidth()
                 )
             },
             confirmButton = {
@@ -243,9 +244,9 @@ private fun AddUnknownContact(code: String) {
                         scope.launch { ContactsRepository(context.applicationContext).add(contact) }
                     },
                     enabled = name.isNotBlank()
-                ) { Text("Добавить") }
+                ) { Text(stringResource(R.string.add)) }
             },
-            dismissButton = { TextButton(onClick = { dialog = false }) { Text("Отмена") } }
+            dismissButton = { TextButton(onClick = { dialog = false }) { Text(stringResource(R.string.cancel)) } }
         )
     }
 }
@@ -258,7 +259,7 @@ private fun TopBar(state: CallUiState, finished: Boolean, onMinimize: () -> Unit
     ) {
         if (!finished) {
             IconButton(onClick = onMinimize) {
-                Icon(Icons.Default.KeyboardArrowDown, "Свернуть")
+                Icon(Icons.Default.KeyboardArrowDown, stringResource(R.string.minimize))
             }
         }
         Spacer(Modifier.weight(1f))
@@ -271,9 +272,9 @@ private fun TopBar(state: CallUiState, finished: Boolean, onMinimize: () -> Unit
 @Composable
 private fun QualityChip(quality: LinkQuality) {
     val (label, color) = when (quality) {
-        LinkQuality.GOOD -> "Отличная связь" to AcceptGreen
-        LinkQuality.FAIR -> "Средняя связь" to Color(0xFFE0A100)
-        else -> "Слабая связь" to DeclineRed
+        LinkQuality.GOOD -> stringResource(R.string.quality_good) to AcceptGreen
+        LinkQuality.FAIR -> stringResource(R.string.quality_fair) to Color(0xFFE0A100)
+        else -> stringResource(R.string.quality_poor) to DeclineRed
     }
     Surface(shape = RoundedCornerShape(50), color = color.copy(alpha = 0.14f)) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -320,10 +321,10 @@ private fun StatusLine(state: CallUiState) {
         CallState.CONNECTED -> {
             CallTimer(state.connectedAt)
             val note = when {
-                state.isOnHold -> "На удержании"
-                state.isReconnecting -> "Связь прервалась, восстанавливаем…"
-                state.isRemoteMuted -> "Собеседник выключил микрофон"
-                state.isMuted -> "Ваш микрофон выключен"
+                state.isOnHold -> stringResource(R.string.on_hold)
+                state.isReconnecting -> stringResource(R.string.status_reconnecting)
+                state.isRemoteMuted -> stringResource(R.string.peer_muted)
+                state.isMuted -> stringResource(R.string.you_muted)
                 else -> null
             }
             AnimatedVisibility(visible = note != null) {
@@ -336,7 +337,7 @@ private fun StatusLine(state: CallUiState) {
             }
         }
         CallState.ENDED -> {
-            Text(state.statusMessage.ifBlank { "Звонок завершён" }, style = MaterialTheme.typography.titleMedium, color = muted)
+            Text(state.statusMessage.ifBlank { stringResource(R.string.call_ended) }, style = MaterialTheme.typography.titleMedium, color = muted)
             if (state.durationSec > 0) {
                 Text(formatDuration(state.durationSec), style = MaterialTheme.typography.bodyMedium, color = muted)
             }
@@ -345,21 +346,21 @@ private fun StatusLine(state: CallUiState) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(10.dp))
-                Text(state.statusMessage.ifBlank { "Подготовка…" }, style = MaterialTheme.typography.titleMedium, color = muted)
+                Text(state.statusMessage.ifBlank { stringResource(R.string.preparing) }, style = MaterialTheme.typography.titleMedium, color = muted)
             }
         }
-        CallState.RINGING -> Text("Входящий звонок DP Call", style = MaterialTheme.typography.titleMedium, color = muted)
+        CallState.RINGING -> Text(stringResource(R.string.incoming_call_dpcall), style = MaterialTheme.typography.titleMedium, color = muted)
         CallState.FAILED -> Text(
-            state.statusMessage.ifBlank { "Ошибка" },
+            state.statusMessage.ifBlank { stringResource(R.string.error) },
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.error
         )
         else -> Text(
             when {
-                state.state == CallState.CONNECTING && (state.signalToCopy == null || state.viaRelay) -> "Соединяемся…"
-                state.state == CallState.WAITING_FOR_ANSWER && state.viaRelay -> state.statusMessage.ifBlank { "Вызываем…" }
-                state.isIncoming -> "Входящий звонок"
-                else -> "Исходящий звонок"
+                state.state == CallState.CONNECTING && (state.signalToCopy == null || state.viaRelay) -> stringResource(R.string.status_connecting)
+                state.state == CallState.WAITING_FOR_ANSWER && state.viaRelay -> state.statusMessage.ifBlank { stringResource(R.string.status_calling) }
+                state.isIncoming -> stringResource(R.string.incoming_call)
+                else -> stringResource(R.string.outgoing_call)
             },
             style = MaterialTheme.typography.titleMedium,
             color = muted
@@ -450,21 +451,21 @@ private fun StepCard(number: Int, title: String, content: @Composable () -> Unit
 private fun SendButtons(signal: String, what: String) {
     val context = LocalContext.current
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = { shareText(context, signal, "Отправить собеседнику") }, modifier = Modifier.weight(1f)) {
+        Button(onClick = { shareText(context, signal, context.getString(R.string.share_to_peer)) }, modifier = Modifier.weight(1f)) {
             Icon(Icons.Default.Share, null, Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Отправить", maxLines = 1)
+            Text(stringResource(R.string.send), maxLines = 1)
         }
         FilledTonalButton(
             onClick = {
                 copyToClipboard(context, signal)
-                Toast.makeText(context, "$what: скопировано", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.copied_what, what), Toast.LENGTH_SHORT).show()
             },
             modifier = Modifier.weight(1f)
         ) {
             Icon(Icons.Default.ContentCopy, null, Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Копировать", maxLines = 1)
+            Text(stringResource(R.string.copy), maxLines = 1)
         }
     }
 }
@@ -478,21 +479,20 @@ private fun OfferExchange(signal: String) {
     fun submit(raw: String) {
         error = when (val result = CallManager.handleSignal(raw)) {
             SignalResult.AnswerApplied, SignalResult.Ignored -> null
-            SignalResult.Own -> "Это ваше приглашение. Нужен ответ собеседника"
-            SignalResult.Ringing, SignalResult.Busy -> "Это приглашение, а нужен ответ собеседника"
-            SignalResult.Unexpected -> "Ответ сейчас не ожидается"
+            SignalResult.Own -> context.getString(R.string.paste_own_invite)
+            SignalResult.Ringing, SignalResult.Busy -> context.getString(R.string.paste_invite_not_answer)
+            SignalResult.Unexpected -> context.getString(R.string.answer_not_expected)
             is SignalResult.Invalid -> result.message
         }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        StepCard(1, "Отправьте приглашение собеседнику") {
-            SendButtons(signal, "Приглашение")
+        StepCard(1, stringResource(R.string.status_send_invite)) {
+            SendButtons(signal, stringResource(R.string.invitation))
         }
-        StepCard(2, "Получите его ответ") {
+        StepCard(2, stringResource(R.string.get_answer)) {
             Text(
-                "Скопируйте ответ в мессенджере и вернитесь сюда — он подхватится сам. " +
-                    "Или нажмите в мессенджере «Поделиться → DP Call».",
+                stringResource(R.string.get_answer_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -500,7 +500,7 @@ private fun OfferExchange(signal: String) {
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it; error = null },
-                label = { Text("Ответ собеседника") },
+                label = { Text(stringResource(R.string.peer_answer)) },
                 modifier = Modifier.fillMaxWidth(),
                 maxLines = 2,
                 isError = error != null,
@@ -510,12 +510,12 @@ private fun OfferExchange(signal: String) {
                         val clip = (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
                             .primaryClip?.getItemAt(0)?.coerceToText(context)?.toString()
                         if (clip.isNullOrBlank()) {
-                            error = "Буфер обмена пуст"
+                            error = context.getString(R.string.clipboard_empty)
                         } else {
                             input = clip
                             submit(clip)
                         }
-                    }) { Icon(Icons.Default.ContentPaste, "Вставить из буфера") }
+                    }) { Icon(Icons.Default.ContentPaste, stringResource(R.string.paste)) }
                 }
             )
             Spacer(Modifier.height(4.dp))
@@ -523,21 +523,21 @@ private fun OfferExchange(signal: String) {
                 onClick = { submit(input) },
                 enabled = input.isNotBlank(),
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Соединить") }
+            ) { Text(stringResource(R.string.connect)) }
         }
     }
 }
 
 @Composable
 private fun AnswerExchange(signal: String) {
-    StepCard(1, "Отправьте ответ собеседнику") {
-        SendButtons(signal, "Ответ")
+    StepCard(1, stringResource(R.string.status_send_answer)) {
+        SendButtons(signal, stringResource(R.string.answer_noun))
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
             Spacer(Modifier.width(10.dp))
             Text(
-                "Разговор начнётся, как только собеседник вставит ответ",
+                stringResource(R.string.waiting_peer_apply),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -605,8 +605,8 @@ private fun ToggleAction(icon: ImageVector, label: String, active: Boolean, onCl
 @Composable
 private fun IncomingControls(onAccept: () -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-        RoundAction(Icons.Default.CallEnd, "Отклонить", { CallManager.declineIncoming() }, DeclineRed, Color.White, 72.dp)
-        RoundAction(Icons.Default.Call, "Принять", onAccept, AcceptGreen, Color.White, 72.dp)
+        RoundAction(Icons.Default.CallEnd, stringResource(R.string.decline), { CallManager.declineIncoming() }, DeclineRed, Color.White, 72.dp)
+        RoundAction(Icons.Default.Call, stringResource(R.string.accept), onAccept, AcceptGreen, Color.White, 72.dp)
     }
 }
 
@@ -616,20 +616,20 @@ private fun InCallControls(state: CallUiState) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             ToggleAction(
                 icon = if (state.isMuted) Icons.Default.MicOff else Icons.Default.Mic,
-                label = if (state.isMuted) "Микрофон выкл." else "Микрофон",
+                label = if (state.isMuted) stringResource(R.string.mic_off) else stringResource(R.string.microphone),
                 active = state.isMuted,
                 onClick = { CallManager.toggleMute() }
             )
             ToggleAction(
                 icon = Icons.Default.GraphicEq,
-                label = "Шумоподавление",
+                label = stringResource(R.string.noise_suppression),
                 active = state.noiseSuppression,
                 onClick = { CallManager.setNoiseSuppression(!state.noiseSuppression) }
             )
             AudioRouteAction(state)
         }
         Spacer(Modifier.height(28.dp))
-        RoundAction(Icons.Default.CallEnd, "Завершить", { CallManager.hangup() }, DeclineRed, Color.White, 72.dp)
+        RoundAction(Icons.Default.CallEnd, stringResource(R.string.hang_up), { CallManager.hangup() }, DeclineRed, Color.White, 72.dp)
     }
 }
 
@@ -640,11 +640,12 @@ private fun routeIcon(route: AudioRoute): ImageVector = when (route) {
     AudioRoute.EARPIECE -> Icons.Default.PhoneInTalk
 }
 
+@Composable
 private fun routeLabel(route: AudioRoute): String = when (route) {
-    AudioRoute.SPEAKER -> "Динамик"
+    AudioRoute.SPEAKER -> stringResource(R.string.route_speaker)
     AudioRoute.BLUETOOTH -> "Bluetooth"
-    AudioRoute.WIRED_HEADSET -> "Гарнитура"
-    AudioRoute.EARPIECE -> "Телефон"
+    AudioRoute.WIRED_HEADSET -> stringResource(R.string.route_headset)
+    AudioRoute.EARPIECE -> stringResource(R.string.route_earpiece)
 }
 
 /** Две цели — простой переключатель динамика; больше (есть Bluetooth) — меню выбора. */
@@ -663,7 +664,7 @@ private fun AudioRouteAction(state: CallUiState) {
         } else {
             ToggleAction(
                 icon = Icons.AutoMirrored.Filled.VolumeUp,
-                label = "Динамик",
+                label = stringResource(R.string.route_speaker),
                 active = state.audioRoute == AudioRoute.SPEAKER,
                 onClick = { CallManager.toggleSpeaker() }
             )

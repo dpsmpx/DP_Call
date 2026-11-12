@@ -1,5 +1,6 @@
 package com.dpcall.app.ui.home
 
+import com.dpcall.app.R
 import android.app.Application
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -9,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.dpcall.app.data.CallLogEntry
 import com.dpcall.app.data.CallLogRepository
 import com.dpcall.app.data.ContactsRepository
+import com.dpcall.app.data.DuplicateContactException
 import com.dpcall.app.data.IdentityRepository
 import com.dpcall.app.domain.Contact
 import com.dpcall.app.domain.Identity
@@ -127,20 +129,20 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         when {
             CodeValidator.isLegacy(code) -> {
                 _uiState.update {
-                    it.copy(addError = "Это код старого формата. Попросите собеседника обновить приложение и прислать новый код")
+                    it.copy(addError = getApplication<Application>().getString(R.string.error_legacy_code))
                 }
                 return
             }
             !CodeValidator.isValid(code) -> {
-                _uiState.update { it.copy(addError = "Неверный код: в нём должно быть 52 символа") }
+                _uiState.update { it.copy(addError = getApplication<Application>().getString(R.string.error_code_length)) }
                 return
             }
             name.isBlank() -> {
-                _uiState.update { it.copy(addError = "Введите имя") }
+                _uiState.update { it.copy(addError = getApplication<Application>().getString(R.string.error_enter_name)) }
                 return
             }
             code == state.identity?.value -> {
-                _uiState.update { it.copy(addError = "Нельзя добавить свой собственный код") }
+                _uiState.update { it.copy(addError = getApplication<Application>().getString(R.string.error_own_code)) }
                 return
             }
         }
@@ -161,7 +163,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 },
                 onFailure = { e ->
                     _uiState.update {
-                        it.copy(isAdding = false, addError = e.message ?: "Ошибка добавления")
+                        val app = getApplication<Application>()
+                        it.copy(
+                            isAdding = false,
+                            addError = app.getString(
+                                if (e is DuplicateContactException) R.string.error_duplicate_contact
+                                else R.string.error_add_contact
+                            )
+                        )
                     }
                 }
             )

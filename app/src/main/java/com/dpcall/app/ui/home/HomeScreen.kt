@@ -1,5 +1,7 @@
 package com.dpcall.app.ui.home
 
+import androidx.compose.ui.res.stringResource
+import com.dpcall.app.R
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
@@ -128,10 +130,10 @@ fun HomeScreen(
                     ) {
                         Icon(Icons.AutoMirrored.Filled.PhoneCallback, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Ответить")
+                        Text(stringResource(R.string.answer_action))
                     }
                     IconButton(onClick = { showSettings = true }) {
-                        Icon(Icons.Default.Settings, "Настройки")
+                        Icon(Icons.Default.Settings, stringResource(R.string.settings))
                     }
                 }
             )
@@ -141,7 +143,7 @@ fun HomeScreen(
                 ExtendedFloatingActionButton(
                     onClick = { viewModel.openAddDialog() },
                     icon = { Icon(Icons.Default.PersonAdd, null) },
-                    text = { Text("Контакт") }
+                    text = { Text(stringResource(R.string.contact)) }
                 )
             }
         }
@@ -172,7 +174,7 @@ fun HomeScreen(
                             onCopy = { viewModel.copyCodeToClipboard() },
                             onShare = {
                                 val code = state.identity?.value ?: return@OwnCodeCard
-                                shareText(context, code, "Отправить мой код")
+                                shareText(context, code, context.getString(R.string.share_my_code))
                             }
                         )
                     }
@@ -183,16 +185,16 @@ fun HomeScreen(
                             modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
                         ) {
                             Tab(selected = tab == 0, onClick = { tab = 0 }, text = {
-                                Text(if (state.contacts.isEmpty()) "Контакты" else "Контакты · ${state.contacts.size}")
+                                Text(if (state.contacts.isEmpty()) stringResource(R.string.contacts) else stringResource(R.string.contacts_count, state.contacts.size))
                             })
-                            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Журнал") })
+                            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.call_log)) })
                         }
                     }
                     if (tab == 1) {
                         if (callLog.isEmpty()) {
                             item(key = "log-empty") {
                                 Text(
-                                    "Звонков пока не было",
+                                    stringResource(R.string.call_log_empty),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center,
@@ -216,7 +218,7 @@ fun HomeScreen(
                             }
                             item(key = "log-clear") {
                                 TextButton(onClick = { viewModel.clearCallLog() }, modifier = Modifier.fillMaxWidth()) {
-                                    Text("Очистить журнал")
+                                    Text(stringResource(R.string.call_log_clear))
                                 }
                             }
                         }
@@ -263,9 +265,9 @@ fun HomeScreen(
                     when (result) {
                         SignalResult.Ringing, SignalResult.Ignored -> viewModel.closeIncomingDialog()
                         SignalResult.AnswerApplied -> viewModel.closeIncomingDialog()
-                        SignalResult.Own -> viewModel.setIncomingError("Это ваше собственное приглашение — отправьте его собеседнику")
-                        SignalResult.Busy -> viewModel.setIncomingError("Сначала завершите текущий звонок")
-                        SignalResult.Unexpected -> viewModel.setIncomingError("Это ответ, а не приглашение. Ответ вставляют на экране исходящего звонка")
+                        SignalResult.Own -> viewModel.setIncomingError(context.getString(R.string.own_invite))
+                        SignalResult.Busy -> viewModel.setIncomingError(context.getString(R.string.finish_current_call))
+                        SignalResult.Unexpected -> viewModel.setIncomingError(context.getString(R.string.answer_not_invite))
                         is SignalResult.Invalid -> viewModel.setIncomingError(result.message)
                     }
                 }
@@ -305,15 +307,15 @@ fun HomeScreen(
     contactToDelete?.let { contact ->
         AlertDialog(
             onDismissRequest = { contactToDelete = null },
-            title = { Text("Удалить контакт?") },
-            text = { Text("«${contact.name}» будет удалён из списка. Код можно добавить снова.") },
+            title = { Text(stringResource(R.string.delete_contact_title)) },
+            text = { Text(stringResource(R.string.delete_contact_text, contact.name)) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.removeContact(contact.code)
                     contactToDelete = null
-                }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
+                }) { Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { contactToDelete = null }) { Text("Отмена") } }
+            dismissButton = { TextButton(onClick = { contactToDelete = null }) { Text(stringResource(R.string.cancel)) } }
         )
     }
 
@@ -321,11 +323,11 @@ fun HomeScreen(
         var name by remember(contact.code) { mutableStateOf(contact.name) }
         AlertDialog(
             onDismissRequest = { contactToRename = null },
-            title = { Text("Переименовать") },
+            title = { Text(stringResource(R.string.rename)) },
             text = {
                 OutlinedTextField(
                     value = name, onValueChange = { name = it },
-                    label = { Text("Имя") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                    label = { Text(stringResource(R.string.name)) }, singleLine = true, modifier = Modifier.fillMaxWidth()
                 )
             },
             confirmButton = {
@@ -335,9 +337,9 @@ fun HomeScreen(
                         contactToRename = null
                     },
                     enabled = name.isNotBlank()
-                ) { Text("Сохранить") }
+                ) { Text(stringResource(R.string.save)) }
             },
-            dismissButton = { TextButton(onClick = { contactToRename = null }) { Text("Отмена") } }
+            dismissButton = { TextButton(onClick = { contactToRename = null }) { Text(stringResource(R.string.cancel)) } }
         )
     }
 }
@@ -355,7 +357,7 @@ private fun ConnectionStatus(status: RelayStatus, onClick: () -> Unit) {
             Box(Modifier.size(8.dp).background(color, CircleShape))
             Spacer(Modifier.width(10.dp))
             Text(
-                if (status.online) "На связи — вам можно позвонить" else "Нет связи — звонки не дойдут",
+                if (status.online) stringResource(R.string.online_banner) else stringResource(R.string.listen_offline),
                 style = MaterialTheme.typography.labelLarge,
                 color = color
             )
@@ -404,19 +406,19 @@ private fun SettingsDialog(relayStatus: RelayStatus, onHelp: () -> Unit, onDismi
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Настройки") },
+        title = { Text(stringResource(R.string.settings)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    if (relayStatus.online) "На связи: ${relayStatus.connected} из ${relayStatus.total} релеев"
-                    else "Нет связи с релеями. Проверьте интернет и VPN",
+                    if (relayStatus.online) stringResource(R.string.relays_connected, relayStatus.connected, relayStatus.total)
+                    else stringResource(R.string.relays_offline),
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (relayStatus.online) OnlineGreen else MaterialTheme.colorScheme.error
                 )
                 Spacer(Modifier.height(8.dp))
                 SettingRow(
-                    title = "Принимать звонки в фоне",
-                    description = "Приложение остаётся на связи, когда закрыто. В шторке висит тихое уведомление — его можно скрыть в настройках Android",
+                    title = stringResource(R.string.setting_background),
+                    description = stringResource(R.string.setting_background_desc),
                     checked = background,
                     onChange = {
                         settings.setBackgroundListening(it)
@@ -424,29 +426,29 @@ private fun SettingsDialog(relayStatus: RelayStatus, onHelp: () -> Unit, onDismi
                     }
                 )
                 SettingRow(
-                    title = "Только от контактов",
-                    description = "Вызовы с кодов, которых нет в контактах, отбрасываются",
+                    title = stringResource(R.string.setting_contacts_only),
+                    description = stringResource(R.string.setting_contacts_only_desc),
                     checked = contactsOnly,
                     onChange = { settings.setContactsOnly(it) }
                 )
                 if (background && !unrestricted) {
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Android может усыплять приложение и задерживать звонки. Чтобы этого не было, разрешите работу без ограничений батареи.",
+                        stringResource(R.string.battery_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(8.dp))
                     FilledTonalButton(onClick = { requestBatteryExemption(context) }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Не ограничивать в фоне")
+                        Text(stringResource(R.string.battery_button))
                     }
                 }
                 Spacer(Modifier.height(8.dp))
                 AdvancedSettings()
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Готово") } },
-        dismissButton = { TextButton(onClick = onHelp) { Text("Как пользоваться") } }
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.done)) } },
+        dismissButton = { TextButton(onClick = onHelp) { Text(stringResource(R.string.how_to_use)) } }
     )
 }
 
@@ -482,34 +484,33 @@ private fun OnboardingDialog(firstRun: Boolean, onDone: () -> Unit) {
         // При первом запуске закрывается только кнопкой — чтобы инструкцию не смахнули случайно.
         onDismissRequest = { if (!firstRun) onDone() },
         icon = { Icon(Icons.Default.Call, null) },
-        title = { Text(if (firstRun) "Добро пожаловать в DP Call" else "Как пользоваться") },
+        title = { Text(if (firstRun) stringResource(R.string.welcome) else stringResource(R.string.how_to_use)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    "Голосовые звонки напрямую между телефонами: без регистрации, номера и серверов.",
+                    stringResource(R.string.onboarding_intro),
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Spacer(Modifier.height(8.dp))
                 OnboardingStep(
-                    1, "Обменяйтесь кодами",
-                    "Отправьте собеседнику «Ваш код» с главного экрана и получите его код — через любой мессенджер."
+                    1, stringResource(R.string.onboarding_1_title),
+                    stringResource(R.string.onboarding_1_text)
                 )
                 OnboardingStep(
-                    2, "Добавьте друг друга",
-                    "Кнопка «Контакт»: вставьте код или отсканируйте QR. Звонок от того, кого нет в контактах, придёт как «Неизвестный абонент»."
+                    2, stringResource(R.string.onboarding_2_title),
+                    stringResource(R.string.onboarding_2_text)
                 )
                 OnboardingStep(
-                    3, "Звоните",
-                    "Нажмите на трубку рядом с контактом — у собеседника зазвонит телефон, даже если приложение закрыто."
+                    3, stringResource(R.string.onboarding_3_title),
+                    stringResource(R.string.onboarding_3_text)
                 )
                 OnboardingStep(
-                    4, "Оставайтесь на связи",
-                    "Разрешите микрофон и уведомления. Чтобы не пропускать звонки, в настройках (шестерёнка) " +
-                        "включите «Не ограничивать в фоне». Зелёная плашка «На связи» значит, что вам можно позвонить."
+                    4, stringResource(R.string.onboarding_4_title),
+                    stringResource(R.string.onboarding_4_text)
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Если собеседник не на связи, приглашение можно отправить вручную — кнопка появится на экране звонка.",
+                    stringResource(R.string.onboarding_footer),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -517,14 +518,14 @@ private fun OnboardingDialog(firstRun: Boolean, onDone: () -> Unit) {
                 if (!firstRun && version.isNotBlank()) {
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Версия $version",
+                        stringResource(R.string.version_fmt, version),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline
                     )
                 }
             }
         },
-        confirmButton = { Button(onClick = onDone) { Text(if (firstRun) "Начать" else "Понятно") } }
+        confirmButton = { Button(onClick = onDone) { Text(if (firstRun) stringResource(R.string.start) else stringResource(R.string.got_it)) } }
     )
 }
 
@@ -537,7 +538,7 @@ private fun OwnCodeCard(code: String, copied: Boolean, onQr: () -> Unit, onCopy:
     ) {
         Column(Modifier.fillMaxWidth().padding(20.dp)) {
             Text(
-                "Ваш код",
+                stringResource(R.string.your_code),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
             )
@@ -554,7 +555,7 @@ private fun OwnCodeCard(code: String, copied: Boolean, onQr: () -> Unit, onCopy:
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                "Передайте его собеседнику, чтобы он добавил вас в контакты",
+                stringResource(R.string.your_code_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
             )
@@ -563,15 +564,15 @@ private fun OwnCodeCard(code: String, copied: Boolean, onQr: () -> Unit, onCopy:
                 Button(onClick = onCopy, modifier = Modifier.weight(1f)) {
                     Icon(if (copied) Icons.Default.Check else Icons.Default.ContentCopy, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(if (copied) "Скопировано" else "Копировать", maxLines = 1)
+                    Text(if (copied) stringResource(R.string.copied) else stringResource(R.string.copy), maxLines = 1)
                 }
                 FilledTonalButton(onClick = onShare, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Default.Share, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Отправить", maxLines = 1)
+                    Text(stringResource(R.string.send), maxLines = 1)
                 }
                 FilledTonalIconButton(onClick = onQr) {
-                    Icon(Icons.Default.QrCode2, "Показать QR-код")
+                    Icon(Icons.Default.QrCode2, stringResource(R.string.show_qr))
                 }
             }
         }
@@ -590,10 +591,10 @@ private fun EmptyContacts(onAdd: () -> Unit) {
             tint = MaterialTheme.colorScheme.outline
         )
         Spacer(Modifier.height(12.dp))
-        Text("Пока никого нет", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.contacts_empty_title), style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(4.dp))
         Text(
-            "Добавьте собеседника по его коду, чтобы позвонить",
+            stringResource(R.string.contacts_empty_text),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
@@ -602,7 +603,7 @@ private fun EmptyContacts(onAdd: () -> Unit) {
         FilledTonalButton(onClick = onAdd) {
             Icon(Icons.Default.PersonAdd, null, Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Добавить контакт")
+            Text(stringResource(R.string.add_contact))
         }
     }
 }
@@ -631,7 +632,7 @@ private fun ContactItem(contact: Contact, onCall: () -> Unit, onRename: () -> Un
                 )
                 if (legacy) {
                     Text(
-                        "Старый код — попросите новый и добавьте заново",
+                        stringResource(R.string.legacy_code),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                         maxLines = 2
@@ -653,21 +654,21 @@ private fun ContactItem(contact: Contact, onCall: () -> Unit, onRename: () -> Un
                 )
             } else {
                 FilledTonalIconButton(onClick = onCall) {
-                    Icon(Icons.Default.Call, "Позвонить: ${contact.name}")
+                    Icon(Icons.Default.Call, stringResource(R.string.call_contact, contact.name))
                 }
             }
             Box {
                 IconButton(onClick = { menuOpen = true }) {
-                    Icon(Icons.Default.MoreVert, "Ещё", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(Icons.Default.MoreVert, stringResource(R.string.more), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(
-                        text = { Text("Переименовать") },
+                        text = { Text(stringResource(R.string.rename)) },
                         leadingIcon = { Icon(Icons.Default.Edit, null) },
                         onClick = { menuOpen = false; onRename() }
                     )
                     DropdownMenuItem(
-                        text = { Text("Удалить") },
+                        text = { Text(stringResource(R.string.delete)) },
                         leadingIcon = { Icon(Icons.Default.Delete, null) },
                         onClick = { menuOpen = false; onDelete() }
                     )
@@ -685,25 +686,25 @@ private fun AddContactDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Новый контакт") },
+        title = { Text(stringResource(R.string.new_contact)) },
         text = {
             Column {
                 OutlinedTextField(
                     value = codeInput, onValueChange = onCodeChange,
-                    label = { Text("Код собеседника") },
+                    label = { Text(stringResource(R.string.peer_code)) },
                     singleLine = true, modifier = Modifier.fillMaxWidth(),
                     textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
                     trailingIcon = {
                         Row {
-                            IconButton(onClick = onScan) { Icon(Icons.Default.QrCodeScanner, "Сканировать QR-код") }
-                            IconButton(onClick = onPaste) { Icon(Icons.Default.ContentPaste, "Вставить из буфера") }
+                            IconButton(onClick = onScan) { Icon(Icons.Default.QrCodeScanner, stringResource(R.string.scan_qr)) }
+                            IconButton(onClick = onPaste) { Icon(Icons.Default.ContentPaste, stringResource(R.string.paste)) }
                         }
                     }
                 )
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = nameInput, onValueChange = onNameChange,
-                    label = { Text("Имя") },
+                    label = { Text(stringResource(R.string.name)) },
                     singleLine = true, modifier = Modifier.fillMaxWidth(),
                     isError = error != null,
                     supportingText = error?.let { { Text(it) } }
@@ -713,10 +714,10 @@ private fun AddContactDialog(
         confirmButton = {
             Button(onClick = onConfirm, enabled = !isAdding && codeInput.isNotBlank()) {
                 if (isAdding) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                else Text("Добавить")
+                else Text(stringResource(R.string.add))
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
     )
 }
 
@@ -728,28 +729,27 @@ private fun IncomingOfferDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.AutoMirrored.Filled.PhoneCallback, null) },
-        title = { Text("Ответить на звонок") },
+        title = { Text(stringResource(R.string.answer_call_title)) },
         text = {
             Column {
                 Text(
-                    "Вставьте приглашение, которое прислал собеседник. " +
-                        "Быстрее: в мессенджере нажмите «Поделиться → DP Call» или просто скопируйте его и откройте приложение.",
+                    stringResource(R.string.answer_call_text),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = offerInput, onValueChange = onOfferChange,
-                    label = { Text("Приглашение") }, modifier = Modifier.fillMaxWidth(), maxLines = 3,
+                    label = { Text(stringResource(R.string.invitation)) }, modifier = Modifier.fillMaxWidth(), maxLines = 3,
                     isError = error != null,
                     supportingText = error?.let { { Text(it) } },
-                    trailingIcon = { IconButton(onClick = onPaste) { Icon(Icons.Default.ContentPaste, "Вставить из буфера") } }
+                    trailingIcon = { IconButton(onClick = onPaste) { Icon(Icons.Default.ContentPaste, stringResource(R.string.paste)) } }
                 )
             }
         },
         confirmButton = {
-            Button(onClick = onAccept, enabled = offerInput.isNotBlank()) { Text("Ответить") }
+            Button(onClick = onAccept, enabled = offerInput.isNotBlank()) { Text(stringResource(R.string.answer_action)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
     )
 }

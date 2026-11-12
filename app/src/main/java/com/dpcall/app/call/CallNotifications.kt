@@ -34,9 +34,9 @@ object CallNotifications {
         val nm = context.getSystemService(NotificationManager::class.java)
 
         val incoming = NotificationChannel(
-            CHANNEL_INCOMING, "Входящие звонки", NotificationManager.IMPORTANCE_HIGH
+            CHANNEL_INCOMING, context.getString(R.string.channel_incoming), NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "Всплывающее уведомление с кнопками «Принять» и «Отклонить»"
+            description = context.getString(R.string.channel_incoming_desc)
             setSound(
                 RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
                 AudioAttributes.Builder()
@@ -49,20 +49,20 @@ object CallNotifications {
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
         val ongoing = NotificationChannel(
-            CHANNEL_ONGOING, "Текущий звонок", NotificationManager.IMPORTANCE_LOW
+            CHANNEL_ONGOING, context.getString(R.string.channel_ongoing), NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "Показывается, пока идёт звонок; позволяет завершить его"
+            description = context.getString(R.string.channel_ongoing_desc)
             setSound(null, null)
             enableVibration(false)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
         val missed = NotificationChannel(
-            CHANNEL_MISSED, "Пропущенные звонки", NotificationManager.IMPORTANCE_DEFAULT
+            CHANNEL_MISSED, context.getString(R.string.channel_missed), NotificationManager.IMPORTANCE_DEFAULT
         )
         val listen = NotificationChannel(
-            CHANNEL_LISTEN, "Ожидание звонков", NotificationManager.IMPORTANCE_MIN
+            CHANNEL_LISTEN, context.getString(R.string.channel_listen), NotificationManager.IMPORTANCE_MIN
         ).apply {
-            description = "Постоянное уведомление фоновой связи. Его можно скрыть — звонки продолжат приходить"
+            description = context.getString(R.string.channel_listen_desc)
             setShowBadge(false)
         }
         nm.createNotificationChannels(listOf(incoming, ongoing, missed, listen))
@@ -75,15 +75,15 @@ object CallNotifications {
     fun build(context: Context, state: CallUiState): Notification =
         if (state.state == CallState.RINGING) incoming(context, state) else ongoing(context, state)
 
-    private fun person(state: CallUiState): Person =
-        Person.Builder().setName(state.contactName.ifBlank { "Собеседник" }).setImportant(true).build()
+    private fun person(context: Context, state: CallUiState): Person =
+        Person.Builder().setName(state.contactName.ifBlank { context.getString(R.string.peer_default_name) }).setImportant(true).build()
 
     private fun incoming(context: Context, state: CallUiState): Notification {
         val content = activityIntent(context, 1, answer = false)
         val notification = NotificationCompat.Builder(context, CHANNEL_INCOMING)
             .setSmallIcon(R.drawable.ic_stat_call)
-            .setContentTitle(state.contactName.ifBlank { "Собеседник" })
-            .setContentText("Входящий звонок DP Call")
+            .setContentTitle(state.contactName.ifBlank { context.getString(R.string.peer_default_name) })
+            .setContentText(context.getString(R.string.incoming_call_dpcall))
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -94,7 +94,7 @@ object CallNotifications {
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setStyle(
                 NotificationCompat.CallStyle.forIncomingCall(
-                    person(state),
+                    person(context, state),
                     broadcast(context, CallActionReceiver.ACTION_DECLINE),
                     activityIntent(context, 2, answer = true)
                 )
@@ -108,16 +108,16 @@ object CallNotifications {
     private fun ongoing(context: Context, state: CallUiState): Notification {
         val connected = state.state == CallState.CONNECTED
         val text = when {
-            state.isOnHold -> "На удержании"
-            connected && state.isReconnecting -> "Связь прервалась, восстанавливаем…"
-            connected && state.isMuted -> "Идёт звонок · микрофон выключен"
-            connected -> "Идёт звонок"
+            state.isOnHold -> context.getString(R.string.on_hold)
+            connected && state.isReconnecting -> context.getString(R.string.status_reconnecting)
+            connected && state.isMuted -> context.getString(R.string.notif_in_call_muted)
+            connected -> context.getString(R.string.notif_in_call)
             state.signalToCopy != null -> state.statusMessage
-            else -> state.statusMessage.ifBlank { "Соединяемся…" }
+            else -> state.statusMessage.ifBlank { context.getString(R.string.status_connecting) }
         }
         val builder = NotificationCompat.Builder(context, CHANNEL_ONGOING)
             .setSmallIcon(R.drawable.ic_stat_call)
-            .setContentTitle(state.contactName.ifBlank { "Собеседник" })
+            .setContentTitle(state.contactName.ifBlank { context.getString(R.string.peer_default_name) })
             .setContentText(text)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -130,7 +130,7 @@ object CallNotifications {
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setStyle(
                 NotificationCompat.CallStyle.forOngoingCall(
-                    person(state),
+                    person(context, state),
                     broadcast(context, CallActionReceiver.ACTION_HANGUP)
                 )
             )
@@ -141,7 +141,7 @@ object CallNotifications {
                 .setWhen(System.currentTimeMillis() - (SystemClock.elapsedRealtime() - state.connectedAt))
                 .addAction(
                     0,
-                    if (state.isMuted) "Включить микрофон" else "Выключить микрофон",
+                    if (state.isMuted) context.getString(R.string.unmute) else context.getString(R.string.mute),
                     broadcast(context, CallActionReceiver.ACTION_TOGGLE_MUTE)
                 )
         } else {
@@ -154,10 +154,10 @@ object CallNotifications {
     fun listening(context: Context, status: RelayStatus): Notification =
         NotificationCompat.Builder(context, CHANNEL_LISTEN)
             .setSmallIcon(R.drawable.ic_stat_call)
-            .setContentTitle(if (status.online) "Готов принимать звонки" else "Нет связи — звонки не дойдут")
+            .setContentTitle(if (status.online) context.getString(R.string.listen_ready) else context.getString(R.string.listen_offline))
             .setContentText(
-                if (status.online) "На связи: ${status.connected} из ${status.total} релеев"
-                else "Подключаемся к релеям…"
+                if (status.online) context.getString(R.string.relays_connected, status.connected, status.total)
+                else context.getString(R.string.listen_connecting)
             )
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
@@ -188,7 +188,7 @@ object CallNotifications {
         if (!canPostNotifications(context)) return
         val notification = NotificationCompat.Builder(context, CHANNEL_MISSED)
             .setSmallIcon(R.drawable.ic_stat_call)
-            .setContentTitle("Пропущенный звонок")
+            .setContentTitle(context.getString(R.string.missed_call))
             .setContentText(name)
             .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
             .setAutoCancel(true)

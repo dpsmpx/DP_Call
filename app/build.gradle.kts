@@ -76,6 +76,12 @@ android {
         compose = true
     }
 
+    // Блок со списком зависимостей шифруется ключом Google и мешает воспроизводимой сборке.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"

@@ -1,0 +1,6 @@
+* Calls survive a network switch (Wi-Fi ↔ mobile)
+* QR codes for exchanging contacts, call history
+* Calls from unknown codes can be accepted and saved to contacts
+* Custom TURN server and relay list in Settings
+* English interface
+* The app is almost three times smaller
