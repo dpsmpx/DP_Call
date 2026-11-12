@@ -14,9 +14,9 @@ Repo: https://github.com/dpsmpx/DP_Call.git
 Binaries: https://github.com/dpsmpx/DP_Call/releases/download/v%v/DP_Call-v%v.apk
 
 Builds:
-  - versionName: 1.1.0
-    versionCode: 4
-    commit: 50a17a829c39f599be5e4c7178610e252cb4a6d4
+  - versionName: 1.1.1
+    versionCode: 5
+    commit: ЗАМЕНИТЕ_НА_ПОЛНЫЙ_ХЕШ_КОММИТА_ТЕГА_v1.1.1
     subdir: app
     gradle:
       - yes
@@ -25,5 +25,5 @@ AllowedAPKSigningKeys: f936930cdb8818d4ddd243f0d5d3a8fc046f284402406584545b490d1
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[0-9.]+$
-CurrentVersion: 1.1.0
-CurrentVersionCode: 4
+CurrentVersion: 1.1.1
+CurrentVersionCode: 5

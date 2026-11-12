@@ -1,0 +1,2 @@
+* Fixed clipped labels in the Russian interface: the Copy button on the home screen and Noise suppression on the call screen
+* The build is now reproducible: the APK can be verified against the source code

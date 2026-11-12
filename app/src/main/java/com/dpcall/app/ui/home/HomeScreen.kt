@@ -537,12 +537,14 @@ private fun OwnCodeCard(copied: Boolean, onQr: () -> Unit, onCopy: () -> Unit, o
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Button(onClick = onCopy, modifier = Modifier.weight(1f)) {
+            // Поля уже стандартных: иначе «Копировать» не помещается на узких экранах.
+            val padding = PaddingValues(horizontal = 12.dp)
+            Button(onClick = onCopy, modifier = Modifier.weight(1f), contentPadding = padding) {
                 Icon(if (copied) Icons.Default.Check else Icons.Default.ContentCopy, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(if (copied) stringResource(R.string.copied) else stringResource(R.string.copy), maxLines = 1)
             }
-            FilledTonalButton(onClick = onShare, modifier = Modifier.weight(1f)) {
+            FilledTonalButton(onClick = onShare, modifier = Modifier.weight(1f), contentPadding = padding) {
                 Icon(Icons.Default.Share, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(stringResource(R.string.send), maxLines = 1)

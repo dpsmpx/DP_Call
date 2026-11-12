@@ -7,7 +7,7 @@
 
 ## Установка
 
-- **GitHub Releases:** [скачать APK][releases] (версия 1.1.0, Android 8.0+)
+- **GitHub Releases:** [скачать APK][releases] (версия 1.1.1, Android 8.0+)
 - **F-Droid:** [страница приложения][fdroid] — *ожидает публикации*
 - [Руководство пользователя](docs/USER_GUIDE.md)
 

@@ -48,9 +48,9 @@ and a custom TURN server can be set there as well.
   Apache-2.0) and secp256k1 (`fr.acinq.secp256k1`, Apache-2.0) come from Maven Central
   and contain native code. ZXing (Apache-2.0) is used for QR codes.
 - **Reproducible build.** `Binaries` and `AllowedAPKSigningKeys` are set. A clean build
-  of the tagged commit with a different JDK (21 instead of 17) produced an APK identical
-  to the published one except for `META-INF/version-control-info.textproto`; that file
-  is disabled starting with the next release.
+  of the previous tag with a different JDK (21 instead of 17) produced an APK identical
+  to the published one except for `META-INF/version-control-info.textproto`; since 1.1.1
+  that file is no longer included (`vcsInfo.include = false`).
 - **`app/debug.keystore`** in the repo is a public test key used only for pre-release CI
   builds; releases are signed with a private key that is not in the repo.
 - **Camera** is used only to scan a contact's QR code, on user request.
@@ -68,9 +68,9 @@ and a custom TURN server can be set there as well.
 | Заголовок «New app: …» | См. выше |
 | Форк публичный, ветка не защищена | Проверьте в настройках своего форка |
 | Один файл `metadata/com.dpcall.app.yml`, LF | Файл готов: [com.dpcall.app.yml](com.dpcall.app.yml) |
-| Релизы с тегами, автообновление | `v1.1.0`, `AutoUpdateMode: Version` |
+| Релизы с тегами, автообновление | `v1.1.1`, `AutoUpdateMode: Version` |
 | Issue tracker, контакт автора, AuthorName | Указаны в файле |
 | Reproducible Builds | Включено (`Binaries`, `AllowedAPKSigningKeys`) |
 | ABI split | Не делаем: APK 22 МБ, две ABI; если попросят — добавим |
-| `commit` — полный хеш | Да |
+| `commit` — полный хеш | Впишите после выхода релиза 1.1.1 |
 | Pipelines pass | Станет видно после отправки |

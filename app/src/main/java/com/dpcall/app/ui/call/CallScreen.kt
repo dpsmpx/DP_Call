@@ -573,7 +573,7 @@ private fun RoundAction(
     content: Color,
     size: Dp = 60.dp
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(96.dp)) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(112.dp)) {
         FilledIconButton(
             onClick = onClick,
             modifier = Modifier.size(size),
