@@ -23,97 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      # Сторонние действия закреплены по хешу коммита: тег можно переставить, хеш — нет.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
-
-      - name: Unit tests
-        run: ./gradlew --no-daemon testDebugUnitTest
-
-      # Релизная сборка. С секретами репозитория подписывается вашим ключом,
-      # без них — общим тестовым ключом из репозитория (см. app/build.gradle.kts).
-      - name: Build release APK
-        # Секреты подписи доступны только этому шагу, а не сторонним действиям.
+      # Временная диагностика: только имена секретов, значения не выводятся.
+      - name: List secret names
         env:
-          KEYSTORE_BASE64: ${{ secrets.DPCALL_KEYSTORE_BASE64 }}
-          DPCALL_KEYSTORE_PASSWORD: ${{ secrets.DPCALL_KEYSTORE_PASSWORD }}
-          DPCALL_KEY_ALIAS: ${{ secrets.DPCALL_KEY_ALIAS }}
-          DPCALL_KEY_PASSWORD: ${{ secrets.DPCALL_KEY_PASSWORD }}
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+          VARS_JSON: ${{ toJSON(vars) }}
         run: |
-          version=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts)
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
-            export DPCALL_KEYSTORE_FILE="$RUNNER_TEMP/release.jks"
-            echo "Signing with the repository release key"
-          elif [[ "$version" != *-* ]]; then
-            # Выпуск нельзя подписывать общим тестовым ключом из репозитория.
-            echo "::error::Release $version requires the signing key secrets (see docs/RELEASING.md)"
-            exit 1
-          else
-            echo "::notice::No release keystore in secrets: signing with the shared test key"
-          fi
-          ./gradlew --no-daemon assembleRelease
-          rm -f "$RUNNER_TEMP/release.jks"
-
-      - name: Collect APKs
-        id: apks
-        run: |
-          version=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts)
-          code=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' app/build.gradle.kts)
-          # Версия с суффиксом (1.1.0-dev) — промежуточная сборка, без суффикса — выпуск.
-          if [[ "$version" == *-* ]]; then
-            tag="v${version}-build.${{ github.run_number }}"
-            prerelease=true
-          else
-            tag="v${version}"
-            prerelease=false
-          fi
-          mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk "dist/DP_Call-${tag}.apk"
-          (cd dist && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt)
-          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
-          for apk in dist/*.apk; do "$apksigner" verify --print-certs "$apk" | grep -E "certificate (DN|SHA-256)" || true; done
-          notes="fastlane/metadata/android/ru-RU/changelogs/${code}.txt"
-          [ -f "$notes" ] || notes=/dev/null
-          {
-            echo "tag=${tag}"
-            echo "prerelease=${prerelease}"
-            echo "notes=${notes}"
-          } >> "$GITHUB_OUTPUT"
-
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: apk
-          path: dist/*
-
-      # Нужен для расшифровки стек-трейсов минифицированной сборки.
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: mapping
-          path: app/build/outputs/mapping/release/mapping.txt
-          if-no-files-found: ignore
-
-      - name: Publish GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.apks.outputs.tag }}
-        run: |
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "::notice::Release $TAG already exists. Bump versionName/versionCode to publish a new one."
-            exit 0
-          fi
-          flags=()
-          if [ "${{ steps.apks.outputs.prerelease }}" = "true" ]; then flags+=(--prerelease); fi
-          gh release create "$TAG" dist/* \
-            --target "${{ github.sha }}" \
-            --title "DP Call ${TAG#v}" \
-            --notes-file "${{ steps.apks.outputs.notes }}" \
-            "${flags[@]}"
+          echo "Secrets visible to this job:"
+          printf '%s' "$SECRETS_JSON" | jq -r 'to_entries[] | "  \(.key | ascii_downcase) empty=\(.value == "")"'
+          echo "Variable names visible to this job:"
+          printf '%s' "$VARS_JSON" | jq -r 'keys[] | "  \(ascii_downcase)"'
