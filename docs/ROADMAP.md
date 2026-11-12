@@ -43,7 +43,7 @@
 - English UI, privacy policy, reproducible build
 
 ## Stage 4 — Hardening
-- Security and code audit before the public release
+- Security and code audit before the public release (done, see SECURITY.md)
 - Own release signing key
 - F-Droid inclusion; app screenshots for the store listing
 - Stress tests on real networks, Doze and vendor battery savers

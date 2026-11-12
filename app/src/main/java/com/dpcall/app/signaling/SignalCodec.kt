@@ -2,6 +2,9 @@ package com.dpcall.app.signaling
 
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import com.dpcall.app.domain.IdentityGenerator
+import com.dpcall.app.signaling.relay.RelayCrypto
+import com.dpcall.app.signaling.relay.RelayCrypto.hexToBytes
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.util.Base64
@@ -18,8 +21,29 @@ object SignalCodec {
         encodeDefaults = true
     }
 
-    fun encode(type: SignalType, payload: SdpPayload): String {
-        val jsonBytes = json.encodeToString(payload).toByteArray(Charsets.UTF_8)
+    /** Предел размера строки сигнала и распакованных данных (защита от «gzip-бомбы»). */
+    const val MAX_SIGNAL_CHARS = 64 * 1024
+    private const val MAX_JSON_BYTES = 256 * 1024
+    const val MAX_CANDIDATES = 64
+
+    /** Что именно подписывается: все поля, однозначно разделённые. */
+    private fun signedDigest(type: SignalType, p: SdpPayload): ByteArray {
+        val fields = listOf(type.code.toString(), p.sdp, p.candidates.size.toString()) + p.candidates +
+            listOf(p.identity.orEmpty(), p.ts.toString(), p.callId.orEmpty())
+        return RelayCrypto.sha256(fields.joinToString("\u0000") { "${it.length}:$it" }.toByteArray(Charsets.UTF_8))
+    }
+
+    /**
+     * @param secret секретный ключ отправителя: если задан, сигнал подписывается.
+     *   payload.identity должен быть кодом, соответствующим этому ключу.
+     */
+    fun encode(type: SignalType, payload: SdpPayload, secret: ByteArray? = null): String {
+        val signed = if (secret != null) {
+            payload.copy(sig = with(RelayCrypto) { signSchnorr(signedDigest(type, payload), secret).toHex() })
+        } else {
+            payload
+        }
+        val jsonBytes = json.encodeToString(signed).toByteArray(Charsets.UTF_8)
         val compressed = gzip(jsonBytes)
         val b64 = Base64.getUrlEncoder().withoutPadding().encodeToString(compressed)
         return "$PREFIX.${type.code}.$b64"
@@ -27,6 +51,9 @@ object SignalCodec {
 
     fun decode(raw: String): Result<DecodedSignal> {
         return try {
+            if (raw.length > MAX_SIGNAL_CHARS) {
+                return Result.failure(SignalException("Signal is too long"))
+            }
             val cleaned = raw.trim().replace(Regex("\\s+"), "")
             val parts = cleaned.split('.', limit = 3)
             if (parts.size != 3) {
@@ -60,8 +87,11 @@ object SignalCodec {
             if (payload.sdp.isBlank()) {
                 return Result.failure(SignalException("SDP is missing"))
             }
+            if (payload.candidates.size > MAX_CANDIDATES) {
+                return Result.failure(SignalException("Too many candidates"))
+            }
 
-            Result.success(DecodedSignal(type = type, payload = payload))
+            Result.success(DecodedSignal(type = type, payload = payload, verified = isSignatureValid(type, payload)))
         } catch (e: SignalException) {
             Result.failure(e)
         } catch (e: Exception) {
@@ -76,6 +106,7 @@ object SignalCodec {
      * мессенджера с подписью). Возвращает null, если её там нет.
      */
     fun extract(text: String): String? {
+        if (text.length > MAX_SIGNAL_CHARS * 2) return null
         val direct = SIGNAL_REGEX.find(text)?.value
         if (direct != null && decode(direct).isSuccess) return direct
         // Мессенджер мог разбить длинную строку переносами.
@@ -94,14 +125,34 @@ object SignalCodec {
         return bos.toByteArray()
     }
 
+    private fun isSignatureValid(type: SignalType, payload: SdpPayload): Boolean {
+        val publicKey = payload.identity?.let { IdentityGenerator.publicKeyFromCode(it) } ?: return false
+        val signature = with(RelayCrypto) { payload.sig?.hexToBytes() } ?: return false
+        if (signature.size != 64) return false
+        return RelayCrypto.verifySchnorr(signature, signedDigest(type, payload.copy(sig = null)), publicKey)
+    }
+
+    /** Распаковка с жёстким пределом: маленькая строка не должна разворачиваться в гигабайты. */
     private fun gunzip(data: ByteArray): ByteArray {
-        return GZIPInputStream(ByteArrayInputStream(data)).use { it.readBytes() }
+        GZIPInputStream(ByteArrayInputStream(data)).use { input ->
+            val out = ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                if (out.size() + read > MAX_JSON_BYTES) throw SignalException("Decompressed signal is too large")
+                out.write(buffer, 0, read)
+            }
+            return out.toByteArray()
+        }
     }
 }
 
 data class DecodedSignal(
     val type: SignalType,
-    val payload: SdpPayload
+    val payload: SdpPayload,
+    /** Подпись проверена: сигнал действительно создан владельцем кода payload.identity. */
+    val verified: Boolean = false
 )
 
 class SignalException(

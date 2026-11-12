@@ -6,7 +6,8 @@ object SignalingHelper {
         sdp: String,
         candidates: List<String> = emptyList(),
         myIdentity: String? = null,
-        callId: String? = null
+        callId: String? = null,
+        secret: ByteArray? = null
     ): String {
         val payload = SdpPayload(
             sdp = sdp,
@@ -14,14 +15,15 @@ object SignalingHelper {
             identity = myIdentity,
             callId = callId
         )
-        return SignalCodec.encode(SignalType.OFFER, payload)
+        return SignalCodec.encode(SignalType.OFFER, payload, secret)
     }
 
     fun createAnswer(
         sdp: String,
         candidates: List<String> = emptyList(),
         myIdentity: String? = null,
-        callId: String? = null
+        callId: String? = null,
+        secret: ByteArray? = null
     ): String {
         val payload = SdpPayload(
             sdp = sdp,
@@ -29,7 +31,7 @@ object SignalingHelper {
             identity = myIdentity,
             callId = callId
         )
-        return SignalCodec.encode(SignalType.ANSWER, payload)
+        return SignalCodec.encode(SignalType.ANSWER, payload, secret)
     }
 
     fun parse(raw: String): DecodedSignal {

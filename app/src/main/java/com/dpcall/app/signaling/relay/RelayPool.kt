@@ -65,7 +65,8 @@ class RelayPool(
     /** Сеть появилась или сменилась — переподключаем оборванное без ожидания. */
     fun reconnectNow() = executor.execute {
         if (!running) return@execute
-        links.forEach { if (!it.open) it.connect(resetBackoff = true) }
+        // Соединение, которое уже устанавливается, не трогаем — иначе оно обрывается на полпути.
+        links.forEach { if (!it.open && !it.isConnecting) it.connect(resetBackoff = true) }
     }
 
     /** Отправляет событие во все подключённые релеи. @return сколько релеев его получили. */
@@ -106,7 +107,9 @@ class RelayPool(
     }
 
     private inner class Link(val url: String) : WebSocketListener() {
+        @Volatile
         private var socket: WebSocket? = null
+        private var connecting = false
         private var retry: ScheduledFuture<*>? = null
         private var backoffSec = 2L
 
@@ -120,6 +123,7 @@ class RelayPool(
             retry = null
             socket?.cancel()
             open = false
+            connecting = true
             socket = try {
                 client.newWebSocket(Request.Builder().url(url).build(), this)
             } catch (e: Exception) {
@@ -128,7 +132,10 @@ class RelayPool(
             }
         }
 
+        val isConnecting: Boolean get() = connecting
+
         fun close() {
+            connecting = false
             retry?.cancel(false)
             retry = null
             socket?.close(1000, null)
@@ -151,6 +158,7 @@ class RelayPool(
         override fun onOpen(webSocket: WebSocket, response: Response) {
             executor.execute {
                 if (webSocket !== socket) return@execute
+                connecting = false
                 open = true
                 backoffSec = 2L
                 val request = buildJsonArray {
@@ -181,6 +189,7 @@ class RelayPool(
         private fun onLost(webSocket: WebSocket) {
             executor.execute {
                 if (webSocket !== socket) return@execute
+                connecting = false
                 socket = null
                 open = false
                 notifyStatus()

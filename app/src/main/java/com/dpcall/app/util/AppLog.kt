@@ -17,11 +17,18 @@ object AppLog {
     private val lines = ArrayDeque<String>(CAPACITY)
     private val format = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
 
+    private val IPV4 = Regex("\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b")
+    private val IPV6 = Regex("(?i)(?<![0-9a-f:])(?:[0-9a-f]{1,4}:){3,}[0-9a-f:]*[0-9a-f]")
+
+    /** Убирает IP-адреса: в текстах сетевых ошибок встречаются адреса релеев и самого устройства. */
+    fun scrub(text: String): String = IPV6.replace(IPV4.replace(text, "<ip>"), "<ip>")
+
     @Synchronized
     fun add(tag: String, message: String) {
+        val clean = scrub(message)
         if (lines.size >= CAPACITY) lines.removeFirst()
-        lines.addLast("${format.format(Date())} $tag: $message")
-        Log.i(tag, message)
+        lines.addLast("${format.format(Date())} $tag: $clean")
+        Log.i(tag, clean)
     }
 
     @Synchronized

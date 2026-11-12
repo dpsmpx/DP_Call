@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
+import com.dpcall.app.signaling.SignalCodec
 import com.dpcall.app.ui.MainActivity
 
 /**
@@ -26,7 +27,7 @@ class SignalReceiverActivity : Activity() {
             else -> null
         }?.toString().orEmpty()
 
-        if (text.isBlank()) {
+        if (text.isBlank() || text.length > SignalCodec.MAX_SIGNAL_CHARS * 2) {
             toast(getString(R.string.share_no_code))
         } else {
             when (val result = CallManager.handleSignal(text)) {

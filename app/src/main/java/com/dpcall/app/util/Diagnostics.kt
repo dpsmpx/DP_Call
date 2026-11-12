@@ -65,11 +65,11 @@ object Diagnostics {
             appendLine("Report time: ${timestamp()}")
             appendLine()
             appendLine("--- Crashes ---")
-            appendLine(crashes.ifBlank { "none" })
+            appendLine(AppLog.scrub(crashes).ifBlank { "none" })
             appendLine("--- Call events ---")
             appendLine(AppLog.dump().ifBlank { "none" })
             appendLine("--- Log ---")
-            appendLine(logcat)
+            appendLine(AppLog.scrub(logcat))
         }
         return if (report.length > MAX_REPORT_CHARS) report.takeLast(MAX_REPORT_CHARS) else report
     }

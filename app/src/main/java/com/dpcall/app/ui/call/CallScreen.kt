@@ -5,6 +5,7 @@ import com.dpcall.app.R
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.os.PersistableBundle
 import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -691,5 +692,8 @@ private fun AudioRouteAction(state: CallUiState) {
 
 private fun copyToClipboard(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    cm.setPrimaryClip(ClipData.newPlainText(MainActivity.CLIP_LABEL, text))
+    val clip = ClipData.newPlainText(MainActivity.CLIP_LABEL, text)
+    // В сигнале есть сетевые адреса: просим систему не показывать его в превью буфера.
+    clip.description.extras = PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE", true) }
+    cm.setPrimaryClip(clip)
 }

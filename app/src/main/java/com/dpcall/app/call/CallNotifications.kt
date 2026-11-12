@@ -213,6 +213,7 @@ object CallNotifications {
     private fun mainIntent(context: Context, answer: Boolean): Intent =
         Intent(context, MainActivity::class.java).apply {
             action = if (answer) MainActivity.ACTION_ANSWER else MainActivity.ACTION_SHOW_CALL
+            if (answer) putExtra(MainActivity.EXTRA_ANSWER_TOKEN, CallManager.answerToken)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
 

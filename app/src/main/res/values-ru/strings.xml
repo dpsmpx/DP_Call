@@ -181,4 +181,7 @@
     <string name="error_own_code">Нельзя добавить свой собственный код</string>
     <string name="error_add_contact">Ошибка добавления</string>
     <string name="error_duplicate_contact">Контакт с таким кодом уже есть</string>
+    <string name="error_unsigned_signal">Код не подписан или изменён. Попросите отправителя обновить приложение и прислать его заново</string>
+    <string name="error_signal_expired">Приглашение устарело. Попросите новое</string>
+    <string name="error_answer_wrong_sender">Этот ответ прислал не тот, кому вы звоните</string>
 </resources>

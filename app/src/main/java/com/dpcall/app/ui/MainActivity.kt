@@ -115,7 +115,11 @@ class MainActivity : ComponentActivity() {
         if (intent?.action == ACTION_ANSWER) {
             // Действие одноразовое: не повторяем его при пересоздании Activity.
             intent.action = ACTION_SHOW_CALL
-            if (CallManager.uiState.value.state == CallState.RINGING) {
+            // Activity экспортирована (это главный экран), поэтому действию «принять» верим,
+            // только если его прислало наше собственное уведомление.
+            val trusted = intent.getStringExtra(EXTRA_ANSWER_TOKEN) == CallManager.answerToken
+            intent.removeExtra(EXTRA_ANSWER_TOKEN)
+            if (trusted && CallManager.uiState.value.state == CallState.RINGING) {
                 withMicPermission { CallManager.acceptIncoming() }
             }
         }
@@ -141,6 +145,7 @@ class MainActivity : ComponentActivity() {
             lastClipTimestamp = timestamp
 
             val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString() ?: return
+            if (text.length > SignalCodec.MAX_SIGNAL_CHARS * 2) return
             if (!SignalCodec.looksLikeSignal(SignalCodec.extract(text) ?: return)) return
             when (CallManager.handleSignal(text, auto = true)) {
                 SignalResult.AnswerApplied ->
@@ -200,6 +205,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val ACTION_ANSWER = "com.dpcall.app.action.ANSWER"
         const val ACTION_SHOW_CALL = "com.dpcall.app.action.SHOW_CALL"
+        const val EXTRA_ANSWER_TOKEN = "com.dpcall.app.extra.ANSWER_TOKEN"
 
         /** Метка наших собственных записей в буфере обмена. */
         const val CLIP_LABEL = "DP Call signal"

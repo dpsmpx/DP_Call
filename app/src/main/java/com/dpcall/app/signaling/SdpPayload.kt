@@ -12,5 +12,10 @@ data class SdpPayload(
     val identity: String? = null,
     val ts: Long = System.currentTimeMillis(),
     /** Идентификатор звонка: связывает приглашение и ответ, пришедшие разными путями. */
-    val callId: String? = null
+    val callId: String? = null,
+    /**
+     * Подпись Шнорра (hex) ключом отправителя [identity] над остальными полями.
+     * Обязательна при ручной передаче: только она доказывает, от кого сигнал.
+     */
+    val sig: String? = null
 )

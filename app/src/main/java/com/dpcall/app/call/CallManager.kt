@@ -118,6 +118,8 @@ object CallManager {
     private const val SETUP_GRACE_MANUAL_MS = 180_000L
     private const val RING_TIMEOUT_MS = 60_000L
     private const val RECONNECT_TIMEOUT_MS = 30_000L
+    private const val UNKNOWN_CALL_LIMIT = 3
+    private const val UNKNOWN_CALL_WINDOW_MS = 10 * 60_000L
     private const val RESTART_MIN_INTERVAL_MS = 4_000L
     private const val RESTART_GATHER_TIMEOUT_MS = 4_000L
     private const val ENDED_SCREEN_MS = 1_800L
@@ -141,6 +143,18 @@ object CallManager {
     private var pcm: PeerConnectionManager? = null
 
     private var myIdentity: String? = null
+    /** Секретный ключ — для подписи приглашений и ответов. */
+    private var mySecret: ByteArray? = null
+
+    /**
+     * Одноразовый для процесса токен: только уведомление самого приложения может
+     * попросить MainActivity принять звонок. Без него стороннее приложение могло бы
+     * запустить Activity с нужным действием и «снять трубку» за пользователя.
+     */
+    val answerToken: String = UUID.randomUUID().toString()
+
+    /** Время последних вызовов с незнакомых кодов — для ограничения частоты. */
+    private val unknownCallTimes = ArrayDeque<Long>()
     private var contacts: List<Contact> = emptyList()
 
     /** Увеличивается при каждом новом звонке и при завершении — отсекает устаревшие колбэки. */
@@ -227,7 +241,11 @@ object CallManager {
 
         val identityRepo = IdentityRepository(app)
         scope.launch {
-            runCatching { myIdentity = identityRepo.getOrCreate().value }
+            runCatching {
+                val keys = identityRepo.loadKeys()
+                mySecret = keys.secret
+                myIdentity = keys.code
+            }
             identityRepo.identityFlow.collect { id -> id?.let { myIdentity = it.value } }
         }
         scope.launch {
@@ -301,12 +319,21 @@ object CallManager {
         val key = text.filterNot { it.isWhitespace() }.hashCode()
         val remoteId = decoded.payload.identity
         if (remoteId != null && remoteId.equals(myIdentity, ignoreCase = true)) return SignalResult.Own
+        // Ручная передача идёт через чужие приложения и буфер обмена: единственное, что
+        // доказывает автора сигнала, — подпись его ключом. Без неё имя звонящего можно
+        // было бы подделать, а чужой «ответ» — подставить в исходящий звонок.
+        if (!decoded.verified || remoteId == null) {
+            AppLog.add(TAG, "manual signal rejected: signature missing or invalid")
+            return if (auto) SignalResult.Ignored else SignalResult.Invalid(app.getString(R.string.error_unsigned_signal))
+        }
 
         return when (decoded.type) {
             SignalType.OFFER -> {
-                if (auto) {
-                    val age = abs(System.currentTimeMillis() - decoded.payload.ts)
-                    if (key in handledSignals || age > AUTO_OFFER_MAX_AGE_MS) return SignalResult.Ignored
+                val age = abs(System.currentTimeMillis() - decoded.payload.ts)
+                if (auto && (key in handledSignals || age > AUTO_OFFER_MAX_AGE_MS)) return SignalResult.Ignored
+                // Старое приглашение бесполезно (звонящий уже не ждёт) и может быть повтором.
+                if (age > AUTO_OFFER_MAX_AGE_MS) {
+                    return SignalResult.Invalid(app.getString(R.string.error_signal_expired))
                 }
                 if (state.isActive) {
                     // То же приглашение могло уже прийти через релеи.
@@ -316,7 +343,7 @@ object CallManager {
                 handledSignals += key
                 val id = decoded.payload.callId ?: UUID.randomUUID().toString()
                 if (id in finishedCallIds) return SignalResult.Ignored
-                ring(decoded, code = remoteId.orEmpty(), id = id, viaRelay = false)
+                ring(decoded, code = remoteId, id = id, viaRelay = false)
                 if (autoAccept) acceptIncoming()
                 SignalResult.Ringing
             }
@@ -325,6 +352,11 @@ object CallManager {
                     return if (auto) SignalResult.Ignored else SignalResult.Unexpected
                 }
                 if (auto && key in handledSignals) return SignalResult.Ignored
+                // Ответ принимается только от того, кому мы звоним.
+                if (!remoteId.equals(_uiState.value.contactCode, ignoreCase = true)) {
+                    AppLog.add(TAG, "manual answer rejected: signed by someone else")
+                    return if (auto) SignalResult.Ignored else SignalResult.Invalid(app.getString(R.string.error_answer_wrong_sender))
+                }
                 handledSignals += key
                 applyRemoteAnswer(decoded)
                 SignalResult.AnswerApplied
@@ -404,7 +436,7 @@ object CallManager {
                 finish(DisconnectCause.REMOTE, app.getString(R.string.peer_busy), graceful = false)
             }
             CallMessage.CANDIDATES -> message.signal?.lineSequence()?.filter { it.isNotBlank() }
-                ?.forEach { addRemoteCandidate(it) }
+                ?.take(SignalCodec.MAX_CANDIDATES)?.forEach { addRemoteCandidate(it) }
             CallMessage.RESTART -> if (!current.isIncoming) requestIceRestart()
             CallMessage.RE_OFFER -> message.signal?.let { onRestartOffer(it) }
             CallMessage.RE_ANSWER -> message.signal?.let { onRestartAnswer(it) }
@@ -435,8 +467,20 @@ object CallManager {
         }
         val known = contacts.any { it.code.equals(fromCode, ignoreCase = true) }
         if (!known && settings.contactsOnly.value) {
-            Log.d(TAG, "Call from unknown code ignored")
+            AppLog.add(TAG, "call from unknown code ignored (contacts only)")
             return
+        }
+        if (!known && state.isActive.not()) {
+            // Не даём незнакомым кодам названивать: не больше нескольких звонков за интервал.
+            val now = SystemClock.elapsedRealtime()
+            while (unknownCallTimes.isNotEmpty() && now - unknownCallTimes.first() > UNKNOWN_CALL_WINDOW_MS) {
+                unknownCallTimes.removeFirst()
+            }
+            if (unknownCallTimes.size >= UNKNOWN_CALL_LIMIT) {
+                AppLog.add(TAG, "call from unknown code dropped (rate limit)")
+                return
+            }
+            unknownCallTimes.addLast(now)
         }
         val decoded = SignalCodec.decode(signal).getOrNull() ?: return
         if (decoded.type != SignalType.OFFER) return
@@ -555,6 +599,7 @@ object CallManager {
             it.copy(
                 state = CallState.CONNECTING,
                 signalToCopy = null,
+                remoteRinging = false,
                 peerUnreachable = false,
                 statusMessage = app.getString(R.string.status_connecting),
                 errorMessage = null
@@ -695,9 +740,9 @@ object CallManager {
         val manager = pcm ?: return null
         val candidates = manager.getCollectedCandidates().map { "${it.sdpMid}|${it.sdpMLineIndex}|${it.sdp}" }
         val signal = if (sdp.type == SessionDescription.Type.OFFER) {
-            SignalingHelper.createOffer(sdp.description, candidates, myIdentity, callId)
+            SignalingHelper.createOffer(sdp.description, candidates, myIdentity, callId, mySecret)
         } else {
-            SignalingHelper.createAnswer(sdp.description, candidates, myIdentity, callId)
+            SignalingHelper.createAnswer(sdp.description, candidates, myIdentity, callId, mySecret)
         }
         // Свой сигнал не должен «позвонить» нам же из буфера обмена.
         handledSignals += signal.hashCode()
@@ -790,6 +835,8 @@ object CallManager {
 
     private fun addRemoteCandidate(candidateSdp: String) {
         if (candidateSdp in appliedRemoteCandidates) return
+        // Предел на звонок: собеседник не должен заставить нас перебирать тысячи адресов.
+        if (appliedRemoteCandidates.size + pendingRemoteCandidates.size >= SignalCodec.MAX_CANDIDATES * 2) return
         if (!remoteDescriptionSet) {
             pendingRemoteCandidates += candidateSdp
             return

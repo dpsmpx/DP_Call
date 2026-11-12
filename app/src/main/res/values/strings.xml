@@ -182,4 +182,7 @@
     <string name="error_own_code">You cannot add your own code</string>
     <string name="error_add_contact">Could not add the contact</string>
     <string name="error_duplicate_contact">A contact with this code already exists</string>
+    <string name="error_unsigned_signal">This code is not signed or was altered. Ask the sender to update the app and send it again</string>
+    <string name="error_signal_expired">This invitation has expired. Ask for a new one</string>
+    <string name="error_answer_wrong_sender">This answer is not from the person you are calling</string>
 </resources>
