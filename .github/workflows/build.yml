@@ -16,6 +16,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    env:
+      DPCALL_KEYSTORE_PASSWORD: ${{ secrets.DPCALL_KEYSTORE_PASSWORD }}
+      DPCALL_KEY_ALIAS: ${{ secrets.DPCALL_KEY_ALIAS }}
+      DPCALL_KEY_PASSWORD: ${{ secrets.DPCALL_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -34,12 +38,11 @@ jobs:
       - name: Build release APK
         env:
           KEYSTORE_BASE64: ${{ secrets.DPCALL_KEYSTORE_BASE64 }}
-          DPCALL_KEYSTORE_PASSWORD: ${{ secrets.DPCALL_KEYSTORE_PASSWORD }}
-          DPCALL_KEY_ALIAS: ${{ secrets.DPCALL_KEY_ALIAS }}
-          DPCALL_KEY_PASSWORD: ${{ secrets.DPCALL_KEY_PASSWORD }}
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            # Через GITHUB_ENV, чтобы тем же ключом подписывались и следующие шаги.
+            echo "DPCALL_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
             export DPCALL_KEYSTORE_FILE="$RUNNER_TEMP/release.jks"
             echo "Signing with the repository release key"
           else
@@ -62,7 +65,14 @@ jobs:
           fi
           mkdir -p dist
           cp app/build/outputs/apk/release/app-release.apk "dist/DP_Call-${tag}.apk"
+          # Для тестовых сборок — тот же код без минификации (одна подпись, ставится поверх).
+          if [ "$prerelease" = "true" ]; then
+            ./gradlew --no-daemon assembleRelease -PnoMinify
+            cp app/build/outputs/apk/release/app-release.apk "dist/DP_Call-${tag}-nominify.apk"
+          fi
           (cd dist && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
+          for apk in dist/*.apk; do "$apksigner" verify --print-certs "$apk" | grep -E "certificate (DN|SHA-256)" || true; done
           notes="fastlane/metadata/android/ru-RU/changelogs/${code}.txt"
           [ -f "$notes" ] || notes=/dev/null
           {

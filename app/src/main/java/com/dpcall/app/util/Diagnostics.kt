@@ -53,7 +53,7 @@ object Diagnostics {
             ""
         }
         val logcat = try {
-            val process = ProcessBuilder("logcat", "-d", "-t", "400", "-v", "time", "*:I")
+            val process = ProcessBuilder("logcat", "-d", "-t", "300", "-v", "time", "*:W")
                 .redirectErrorStream(true).start()
             process.inputStream.bufferedReader().use { it.readText() }
         } catch (e: Exception) {
@@ -66,6 +66,8 @@ object Diagnostics {
             appendLine()
             appendLine("--- Crashes ---")
             appendLine(crashes.ifBlank { "none" })
+            appendLine("--- Call events ---")
+            appendLine(AppLog.dump().ifBlank { "none" })
             appendLine("--- Log ---")
             appendLine(logcat)
         }

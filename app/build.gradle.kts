@@ -14,7 +14,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 4
-        versionName = "1.1.0-rc1"
+        versionName = "1.1.0-rc2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -43,8 +43,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // -PnoMinify собирает ту же версию без R8 — для сравнения при поиске ошибок.
+            val minify = !project.hasProperty("noMinify")
+            isMinifyEnabled = minify
+            isShrinkResources = minify
             // Только ABI реальных телефонов; x86 нужен лишь эмуляторам и остаётся в debug.
             ndk {
                 abiFilters += listOf("arm64-v8a", "armeabi-v7a")

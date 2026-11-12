@@ -9,6 +9,7 @@ import android.os.Looper
 import android.util.Log
 import com.dpcall.app.data.AppSettings
 import com.dpcall.app.data.IdentityRepository
+import com.dpcall.app.util.AppLog
 import com.dpcall.app.signaling.relay.CallMessage
 import com.dpcall.app.signaling.relay.RelayMessenger
 import com.dpcall.app.signaling.relay.RelayPool
@@ -57,8 +58,11 @@ object RelaySignaling {
                     keys = keys,
                     relays = relays,
                     onMessage = { from, message -> main.post { CallManager.onRelayMessage(from, message) } },
-                    onStatus = { connected, total -> _status.value = RelayStatus(connected, total) },
-                    log = { Log.d(TAG, it) }
+                    onStatus = { connected, total ->
+                        if (_status.value.connected != connected) AppLog.add(TAG, "relays connected: $connected/$total")
+                        _status.value = RelayStatus(connected, total)
+                    },
+                    log = { AppLog.add(TAG, it) }
                 )
                 messenger = created
                 created.start()

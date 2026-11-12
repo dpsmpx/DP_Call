@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.util.Log
 import com.dpcall.app.data.AppSettings
+import com.dpcall.app.util.AppLog
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
 import org.webrtc.DataChannel
@@ -143,19 +144,23 @@ class PeerConnectionManager(
         }
 
         val pc = factory.createPeerConnection(rtcConfig, object : PeerConnection.Observer {
-            override fun onSignalingChange(state: PeerConnection.SignalingState?) {}
+            override fun onSignalingChange(state: PeerConnection.SignalingState?) {
+                AppLog.add(TAG, "signaling=$state")
+            }
+
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
-                Log.d(TAG, "onIceConnectionChange: $state")
+                AppLog.add(TAG, "ice=$state")
             }
 
             override fun onConnectionChange(newState: PeerConnection.PeerConnectionState?) {
-                Log.d(TAG, "onConnectionChange: $newState")
+                AppLog.add(TAG, "connection=$newState")
                 newState?.let { listener.onConnectionChange(it) }
             }
 
             override fun onIceConnectionReceivingChange(receiving: Boolean) {}
 
             override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {
+                AppLog.add(TAG, "gathering=$state candidates=${candidateSummary(collectedCandidates.map { it.sdp })}")
                 if (state == PeerConnection.IceGatheringState.COMPLETE) listener.onIceGatheringComplete()
             }
 
@@ -188,6 +193,7 @@ class PeerConnectionManager(
                 dc.registerObserver(object : DataChannel.Observer {
                     override fun onBufferedAmountChange(previousAmount: Long) {}
                     override fun onStateChange() {
+                        AppLog.add(TAG, "control channel=${controlChannel?.state()}")
                         if (controlChannel?.state() == DataChannel.State.OPEN) listener.onControlChannelOpen()
                     }
 
@@ -278,11 +284,16 @@ class PeerConnectionManager(
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
             if (iceRestart) mandatory.add(MediaConstraints.KeyValuePair("IceRestart", "true"))
         }
-        val observer = object : SimpleSdpObserver(onError) {
+        val kind = (if (isOffer) "offer" else "answer") + (if (iceRestart) " (ice restart)" else "")
+        val logError: (String) -> Unit = { AppLog.add(TAG, "create/setLocal $kind FAILED: $it"); onError(it) }
+        val observer = object : SimpleSdpObserver(logError) {
             override fun onCreateSuccess(sdp: SessionDescription?) {
-                sdp ?: return onError("Empty SDP")
-                peerConnection?.setLocalDescription(object : SimpleSdpObserver(onError) {
-                    override fun onSetSuccess() = onSuccess(sdp)
+                sdp ?: return logError("Empty SDP")
+                peerConnection?.setLocalDescription(object : SimpleSdpObserver(logError) {
+                    override fun onSetSuccess() {
+                        AppLog.add(TAG, "setLocal $kind ok")
+                        onSuccess(sdp)
+                    }
                 }, sdp)
             }
         }
@@ -292,10 +303,20 @@ class PeerConnectionManager(
     fun setRemoteDescription(sdp: SessionDescription, onSuccess: () -> Unit, onError: (String) -> Unit) {
         val pc = peerConnection ?: return onError("No peer connection")
         val tuned = SessionDescription(sdp.type, SdpTuning.tuneOpus(sdp.description))
-        pc.setRemoteDescription(object : SimpleSdpObserver(onError) {
-            override fun onSetSuccess() = onSuccess()
+        AppLog.add(TAG, "setRemote ${sdp.type} len=${sdp.description.length}")
+        pc.setRemoteDescription(object : SimpleSdpObserver({ AppLog.add(TAG, "setRemote ${sdp.type} FAILED: $it"); onError(it) }) {
+            override fun onSetSuccess() {
+                AppLog.add(TAG, "setRemote ${sdp.type} ok")
+                onSuccess()
+            }
         }, tuned)
     }
+
+    /** Сколько кандидатов какого типа: host — локальные, srflx — через STUN, relay — через TURN. */
+    private fun candidateSummary(sdps: List<String>): String =
+        listOf("host", "srflx", "prflx", "relay").joinToString(" ") { type ->
+            "$type=" + sdps.count { " typ $type" in it }
+        }
 
     fun addIceCandidate(candidate: IceCandidate) {
         peerConnection?.addIceCandidate(candidate)

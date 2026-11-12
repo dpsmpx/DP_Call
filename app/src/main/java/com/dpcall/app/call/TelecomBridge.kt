@@ -9,6 +9,7 @@ import androidx.core.telecom.CallAttributesCompat
 import androidx.core.telecom.CallControlScope
 import androidx.core.telecom.CallEndpointCompat
 import androidx.core.telecom.CallsManager
+import com.dpcall.app.util.AppLog
 import com.dpcall.app.webrtc.AudioRoute
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -103,8 +104,12 @@ class TelecomBridge(
             try {
                 cm.addCall(
                     attributes,
-                    onAnswer = { if (job === thisJob) listener.onTelecomAnswer() },
-                    onDisconnect = {
+                    onAnswer = {
+                        AppLog.add(TAG, "telecom: answer")
+                        if (job === thisJob) listener.onTelecomAnswer()
+                    },
+                    onDisconnect = { cause ->
+                        AppLog.add(TAG, "telecom: disconnect cause=${cause.code} ${cause.reason ?: ""}")
                         if (job === thisJob) {
                             // Telecom уже завершил звонок со своей стороны.
                             control = null
@@ -112,10 +117,17 @@ class TelecomBridge(
                             listener.onTelecomDisconnect()
                         }
                     },
-                    onSetActive = { if (job === thisJob) listener.onTelecomHold(false) },
-                    onSetInactive = { if (job === thisJob) listener.onTelecomHold(true) }
+                    onSetActive = {
+                        AppLog.add(TAG, "telecom: set active")
+                        if (job === thisJob) listener.onTelecomHold(false)
+                    },
+                    onSetInactive = {
+                        AppLog.add(TAG, "telecom: set inactive (hold)")
+                        if (job === thisJob) listener.onTelecomHold(true)
+                    }
                 ) {
                     if (job !== thisJob) return@addCall
+                    AppLog.add(TAG, "telecom: call registered (incoming=$incoming)")
                     control = this
                     if (pendingAnswer) launch { answer(CallAttributesCompat.CALL_TYPE_AUDIO_CALL) }
                     if (pendingActive) launch { setActive() }
@@ -142,7 +154,7 @@ class TelecomBridge(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(TAG, "Telecom addCall failed", e)
+                AppLog.add(TAG, "telecom: addCall FAILED: $e")
                 if (job === thisJob) {
                     control = null
                     job = null

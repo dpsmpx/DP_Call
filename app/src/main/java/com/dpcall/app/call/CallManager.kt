@@ -26,6 +26,7 @@ import com.dpcall.app.signaling.SignalCodec
 import com.dpcall.app.signaling.SignalType
 import com.dpcall.app.signaling.SignalingHelper
 import com.dpcall.app.signaling.relay.CallMessage
+import com.dpcall.app.util.AppLog
 import com.dpcall.app.util.CodeValidator
 import com.dpcall.app.webrtc.AudioCallManager
 import com.dpcall.app.webrtc.AudioRoute
@@ -184,6 +185,19 @@ object CallManager {
         callLog = CallLogRepository(app)
         _uiState.update { it.copy(noiseSuppression = settings.noiseSuppression) }
         scope.launch {
+            // Журнал переходов состояния — для отчёта об ошибке.
+            var last = ""
+            uiState.collect { s ->
+                val line = "state=${s.state} incoming=${s.isIncoming} relay=${s.viaRelay} ringing=${s.remoteRinging} " +
+                    "reconnecting=${s.isReconnecting} muted=${s.isMuted} route=${s.audioRoute} status=\"${s.statusMessage}\"" +
+                    (s.errorMessage?.let { " error=\"$it\"" } ?: "")
+                if (line != last) {
+                    last = line
+                    AppLog.add(TAG, line)
+                }
+            }
+        }
+        scope.launch {
             // Запасной путь уведомлений, когда foreground-сервис звонка недоступен.
             uiState.collect { state ->
                 if (!serviceFallback) return@collect
@@ -335,6 +349,12 @@ object CallManager {
 
     /** Сообщение сигнального канала. Отправитель уже проверен криптографически. */
     fun onRelayMessage(fromCode: String, message: CallMessage) {
+        AppLog.add(
+            TAG,
+            "relay in: ${message.t} call=${message.id.take(6)} mine=${callId.take(6)} " +
+                "fromPeer=${fromCode.equals(_uiState.value.contactCode, ignoreCase = true)} " +
+                "signal=${message.signal?.length ?: 0} ageMs=${System.currentTimeMillis() - message.ts}"
+        )
         if (abs(System.currentTimeMillis() - message.ts) > RELAY_MESSAGE_MAX_AGE_MS) return
         if (message.t == CallMessage.OFFER) {
             onRelayOffer(fromCode, message)
@@ -414,8 +434,12 @@ object CallManager {
     /** Отправляет служебное сообщение собеседнику текущего звонка. */
     private fun sendToPeer(type: String, signal: String? = null) {
         val code = _uiState.value.contactCode
-        if (callId.isBlank() || !CodeValidator.isValid(code)) return
-        RelaySignaling.send(code, CallMessage(type, callId, signal))
+        if (callId.isBlank() || !CodeValidator.isValid(code)) {
+            AppLog.add(TAG, "relay out: $type SKIPPED (callId blank=${callId.isBlank()}, code valid=${CodeValidator.isValid(code)})")
+            return
+        }
+        val accepted = RelaySignaling.send(code, CallMessage(type, callId, signal))
+        AppLog.add(TAG, "relay out: $type call=${callId.take(6)} signal=${signal?.length ?: 0} relays=$accepted")
     }
 
     /** Повторяет сообщение: события эфемерны, а собеседник мог быть не на связи. */
@@ -655,7 +679,7 @@ object CallManager {
         val candidates = manager.getCollectedCandidates().map {
             "${it.sdpMid}|${it.sdpMLineIndex}|${it.sdp}"
         }
-        Log.d(TAG, "Finalize signal ($reason), candidates=${candidates.size}")
+        AppLog.add(TAG, "local ${sdp.type} ready ($reason), candidates=${candidates.size}")
 
         val isOffer = sdp.type == SessionDescription.Type.OFFER
         val signal = if (isOffer) {
@@ -783,6 +807,7 @@ object CallManager {
     /** У телефона сменилась сеть (Wi-Fi ↔ мобильная): старые маршруты больше не работают. */
     fun onNetworkChanged() {
         if (state != CallState.CONNECTED) return
+        AppLog.add(TAG, "default network changed during call")
         val gen = generation
         main.postDelayed({ if (gen == generation) requestIceRestart() }, 1_500)
     }
@@ -793,6 +818,7 @@ object CallManager {
      */
     private fun requestIceRestart() {
         if (state != CallState.CONNECTED || restart != Restart.NONE) return
+        AppLog.add(TAG, "ice restart requested (incoming=${_uiState.value.isIncoming})")
         val now = SystemClock.elapsedRealtime()
         if (now - lastRestartAt < RESTART_MIN_INTERVAL_MS) return
         lastRestartAt = now
@@ -897,6 +923,7 @@ object CallManager {
     }
 
     private fun onControlMessage(message: String) {
+        AppLog.add(TAG, "control in: $message")
         when {
             message == MSG_BYE -> {
                 if (state.isActive) finish(DisconnectCause.REMOTE, app.getString(R.string.peer_ended), graceful = false)
@@ -988,6 +1015,7 @@ object CallManager {
         outcome: CallOutcome? = null
     ) {
         val prev = _uiState.value
+        AppLog.add(TAG, "finish: \"$message\" in state=${prev.state} telecomCause=$telecomCause")
         recordCall(prev, outcome)
         releaseResources(telecomCause, graceful)
         if (!showEnded) {
@@ -1032,7 +1060,7 @@ object CallManager {
     }
 
     private fun fail(message: String) {
-        Log.e(TAG, message)
+        AppLog.add(TAG, "FAIL: $message")
         val prev = _uiState.value
         if (prev.state.isActive) sendToPeer(CallMessage.BYE)
         recordCall(prev, null)
