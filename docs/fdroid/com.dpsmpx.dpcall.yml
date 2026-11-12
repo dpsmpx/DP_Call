@@ -16,7 +16,7 @@ Binaries: https://github.com/dpsmpx/DP_Call/releases/download/v%v/DP_Call-v%v.ap
 Builds:
   - versionName: 1.1.1
     versionCode: 5
-    commit: ЗАМЕНИТЕ_НА_ПОЛНЫЙ_ХЕШ_КОММИТА_ТЕГА_v1.1.1
+    commit: 03be86ee45407ca50a2a5e65b34e8e03048e2278
     subdir: app
     gradle:
       - yes

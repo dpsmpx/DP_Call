@@ -72,5 +72,5 @@ and a custom TURN server can be set there as well.
 | Issue tracker, контакт автора, AuthorName | Указаны в файле |
 | Reproducible Builds | Включено (`Binaries`, `AllowedAPKSigningKeys`) |
 | ABI split | Не делаем: APK 22 МБ, две ABI; если попросят — добавим |
-| `commit` — полный хеш | Впишите после выхода релиза 1.1.1 |
+| `commit` — полный хеш | Да |
 | Pipelines pass | Станет видно после отправки |
