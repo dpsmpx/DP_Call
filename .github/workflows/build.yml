@@ -76,6 +76,13 @@ jobs:
           name: apk
           path: dist/*
 
+      # Нужен для расшифровки стек-трейсов минифицированной сборки.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mapping
+          path: app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: ignore
+
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

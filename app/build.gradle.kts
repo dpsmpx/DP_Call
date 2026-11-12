@@ -13,8 +13,8 @@ android {
         applicationId = "com.dpcall.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.0"
+        versionCode = 3
+        versionName = "1.0.1-rc1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -43,9 +43,12 @@ android {
 
     buildTypes {
         release {
-            // Минификация пока выключена: на устройствах проверена только неминифицированная
-            // сборка. Включать после проверки звонков на R8-сборке (правила — proguard-rules.pro).
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            // Только ABI реальных телефонов; x86 нужен лишь эмуляторам и остаётся в debug.
+            ndk {
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            }
             // Без релизного ключа сборка подписывается общим тестовым ключом из репозитория.
             // F-Droid подпись игнорирует и подписывает своим ключом.
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")

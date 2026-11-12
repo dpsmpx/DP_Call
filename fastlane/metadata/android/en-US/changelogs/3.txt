@@ -1,0 +1,2 @@
+* The app is almost three times smaller: 22 MB instead of 61
+* Optimized (minified) code
