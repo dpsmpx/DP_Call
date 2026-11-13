@@ -87,9 +87,23 @@ class CodeAndUpdateTest {
              "assets":[{"name":"SHA256SUMS.txt","browser_download_url":"https://github.com/dpsmpx/DP_Call/releases/download/v1.3.0/SHA256SUMS.txt"},
                        {"name":"DP_Call-v1.3.0.apk","browser_download_url":"https://github.com/dpsmpx/DP_Call/releases/download/v1.3.0/DP_Call-v1.3.0.apk"}]}
         """.trimIndent()
-        val update = UpdateChecker.parseRelease(body)!!
+        val update = UpdateChecker.parseRelease(body, tor = false)!!
         assertEquals("1.3.0", update.version)
         assertEquals("https://github.com/dpsmpx/DP_Call/releases/download/v1.3.0/DP_Call-v1.3.0.apk", update.url)
+    }
+
+    @Test
+    fun eachBuildIsOfferedItsOwnApk() {
+        val base = "https://github.com/dpsmpx/DP_Call/releases/download/v1.3.0/"
+        val body = """
+            {"tag_name":"v1.3.0","assets":[
+              {"browser_download_url":"${base}DP_Call-Tor-v1.3.0.apk"},
+              {"browser_download_url":"${base}DP_Call-Tor.apk"},
+              {"browser_download_url":"${base}DP_Call.apk"},
+              {"browser_download_url":"${base}DP_Call-v1.3.0.apk"}]}
+        """.trimIndent()
+        assertEquals("${base}DP_Call-v1.3.0.apk", UpdateChecker.parseRelease(body, tor = false)!!.url)
+        assertEquals("${base}DP_Call-Tor-v1.3.0.apk", UpdateChecker.parseRelease(body, tor = true)!!.url)
     }
 
     @Test

@@ -17,6 +17,7 @@ class RelayMessenger(
     /** Запасные релеи на случай, когда основные подводят. */
     spares: List<String> = emptyList(),
     pingSec: Long = 40,
+    proxy: java.net.Proxy? = null,
     private val onMessage: (fromCode: String, message: CallMessage) -> Unit,
     /** Забирать с релеев отметки о звонках, пропущенных, пока нас не было на связи. */
     receiveMissed: Boolean = false,
@@ -29,6 +30,7 @@ class RelayMessenger(
         urls = relays,
         spares = spares,
         pingSec = pingSec,
+        proxy = proxy,
         inboxTag = Envelope.inboxTag(keys.public),
         kind = NostrEvent.KIND_CALL_SIGNAL,
         storedKind = NostrEvent.KIND_MISSED_CALL.takeIf { receiveMissed },

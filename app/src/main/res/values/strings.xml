@@ -286,4 +286,10 @@
     <string name="hard_background_warning">The phone will not fully sleep: the app keeps the processor awake and checks the connection every 25 seconds. Expect several percent more battery use per day. Turn it on only if calls do not get through with the other settings.</string>
     <string name="hard_background_enable">Turn on</string>
     <string name="check_advice_own_turn">Calls should connect through the public TURN, but your own server does not respond: check its address, login and password in Settings → Advanced.</string>
+    <!-- Tor -->
+    <string name="tor_title">Signaling through Tor</string>
+    <string name="tor_desc">Relays do not see your IP address. Calls take a few seconds longer to reach the other side. The voice itself still goes directly or through TURN, so the other person and the TURN server see your address.</string>
+    <string name="tor_starting">Connecting through Tor…</string>
+    <string name="tor_failed">Tor does not connect — calls will not reach you</string>
+    <string name="online_banner_tor">Online through Tor — you can be called</string>
 </resources>

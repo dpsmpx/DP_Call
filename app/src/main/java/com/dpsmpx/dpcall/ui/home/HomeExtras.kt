@@ -2,6 +2,9 @@ package com.dpsmpx.dpcall.ui.home
 
 import androidx.compose.ui.res.stringResource
 import com.dpsmpx.dpcall.R
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.dpsmpx.dpcall.tor.TorProxy
+import androidx.compose.material3.Switch
 import android.graphics.Bitmap
 import android.text.format.DateUtils
 import android.widget.Toast
@@ -341,6 +344,27 @@ fun AdvancedSettings(onManualInvite: () -> Unit) {
     val relaysInvalid = stringResource(R.string.relays_invalid)
     val turnInvalid = stringResource(R.string.turn_invalid)
     val reportTitle = stringResource(R.string.send_error_log)
+
+    // --- Tor (только в сборке с Tor)
+    if (TorProxy.available) {
+        val tor by settings.torSignaling.collectAsStateWithLifecycle()
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(R.string.tor_title), style = MaterialTheme.typography.titleSmall)
+                Text(
+                    stringResource(R.string.tor_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Switch(checked = tor, onCheckedChange = {
+                settings.setTorSignaling(it)
+                RelaySignaling.restart(context)
+            })
+        }
+        Spacer(Modifier.height(16.dp))
+    }
 
     // --- резервная копия
     BackupSection()

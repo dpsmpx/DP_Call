@@ -21,8 +21,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import com.dpsmpx.dpcall.tor.TorProxy
+import com.dpsmpx.dpcall.tor.TorState
 
-data class RelayStatus(val connected: Int = 0, val total: Int = RelayPool.DEFAULT_RELAYS.size) {
+data class RelayStatus(
+    val connected: Int = 0,
+    val total: Int = RelayPool.DEFAULT_RELAYS.size,
+    /** Состояние Tor, если сигнальный канал идёт через него; null — напрямую. */
+    val tor: TorState? = null
+) {
     val online: Boolean get() = connected > 0
 }
 
@@ -46,15 +56,30 @@ object RelaySignaling {
     private val _status = MutableStateFlow(RelayStatus())
     val status: StateFlow<RelayStatus> = _status.asStateFlow()
 
+    private var startJob: Job? = null
+    private var torWatch: Job? = null
+
     fun start(context: Context) {
         if (started) return
         started = true
         val app = context.applicationContext
-        scope.launch {
+        startJob = scope.launch {
             try {
                 val keys = IdentityRepository(app).loadKeys()
                 val relays = AppSettings.get(app).relays.value
-                _status.value = RelayStatus(0, relays.size)
+                val viaTor = TorProxy.available && AppSettings.get(app).torSignaling.value
+                _status.value = RelayStatus(0, relays.size, if (viaTor) TorState.STARTING else null)
+                var proxy: java.net.Proxy? = null
+                if (viaTor) {
+                    // Без Tor к релеям не подключаемся вовсе: иначе они увидят настоящий IP.
+                    TorProxy.start(app)
+                    torWatch?.cancel()
+                    torWatch = launch {
+                        TorProxy.state.collect { tor -> _status.update { it.copy(tor = tor) } }
+                    }
+                    TorProxy.state.first { it == TorState.READY }
+                    proxy = TorProxy.proxy() ?: error("Tor proxy unavailable")
+                }
                 val created = RelayMessenger(
                     keys = keys,
                     relays = relays,
@@ -62,11 +87,12 @@ object RelaySignaling {
                     spares = if (relays == RelayPool.DEFAULT_RELAYS) RelayPool.SPARE_RELAYS else emptyList(),
                     // Постоянная связь: обрыв замечается за ~25 с вместо ~40 с.
                     pingSec = if (AppSettings.get(app).hardBackground.value) 25 else 40,
+                    proxy = proxy,
                     receiveMissed = AppSettings.get(app).missedNotices.value,
                     onMessage = { from, message -> main.post { CallManager.onRelayMessage(from, message) } },
                     onStatus = { connected, total ->
                         if (_status.value.connected != connected) AppLog.add(TAG, "relays connected: $connected/$total")
-                        _status.value = RelayStatus(connected, total)
+                        _status.update { it.copy(connected = connected, total = total) }
                     },
                     log = { AppLog.add(TAG, it) }
                 )
@@ -76,6 +102,8 @@ object RelaySignaling {
                     networkWatched = true
                     watchNetwork(app)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e // перезапуск с новыми настройками
             } catch (e: Throwable) {
                 Log.e(TAG, "Relay signaling unavailable", e)
                 started = false
@@ -98,10 +126,14 @@ object RelaySignaling {
         }
     }
 
-    /** Переподключается с новым списком релеев из настроек. */
+    /** Переподключается с новыми настройками: список релеев, Tor, частота проверок. */
     fun restart(context: Context) {
+        startJob?.cancel()
+        torWatch?.cancel()
         messenger?.stop()
         messenger = null
+        if (!AppSettings.get(context).torSignaling.value) TorProxy.stop(context)
+        _status.value = RelayStatus()
         started = false
         start(context)
     }

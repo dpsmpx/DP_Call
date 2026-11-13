@@ -37,6 +37,8 @@ class RelayPool(
     private val target: Int = TARGET_RELAYS,
     /** Как часто проверять, живо ли соединение; реже — экономнее, чаще — быстрее замечается обрыв. */
     pingSec: Long = 40,
+    /** SOCKS-прокси (Tor); имена релеев тогда разрешает сам прокси, без утечки DNS. */
+    proxy: java.net.Proxy? = null,
     private val inboxTag: String,
     private val kind: Int,
     /** Хранимые события, которые нужно забрать за последние [storedWindowSec] секунд; null — не нужны. */
@@ -48,7 +50,9 @@ class RelayPool(
 ) {
     private val client = OkHttpClient.Builder()
         .pingInterval(pingSec, TimeUnit.SECONDS)
-        .connectTimeout(15, TimeUnit.SECONDS)
+        // Через Tor соединение устанавливается дольше.
+        .connectTimeout(if (proxy != null) 45 else 15, TimeUnit.SECONDS)
+        .apply { if (proxy != null) proxy(proxy) }
         .readTimeout(0, TimeUnit.SECONDS)
         .build()
     private val executor = Executors.newSingleThreadScheduledExecutor { r ->

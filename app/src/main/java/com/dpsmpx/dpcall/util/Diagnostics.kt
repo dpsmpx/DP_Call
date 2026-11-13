@@ -64,6 +64,7 @@ object Diagnostics {
             appendLine("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}), ${Build.MANUFACTURER} ${Build.MODEL}")
             appendLine("Report time: ${timestamp()}")
             appendLine()
+            appendLine("Build: ${if (com.dpsmpx.dpcall.BuildConfig.TOR) "tor" else "standard"}, Tor: ${com.dpsmpx.dpcall.call.RelaySignaling.status.value.tor ?: "off"}")
             appendLine("--- Relays ---")
             val relays = com.dpsmpx.dpcall.call.RelaySignaling.relayStates()
             appendLine(relays.joinToString("\n") { r ->

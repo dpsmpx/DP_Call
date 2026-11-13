@@ -19,7 +19,7 @@ Builds:
     commit: 03be86ee45407ca50a2a5e65b34e8e03048e2278
     subdir: app
     gradle:
-      - yes
+      - standard
 
 AllowedAPKSigningKeys: f936930cdb8818d4ddd243f0d5d3a8fc046f284402406584545b490d15b1cddb
 

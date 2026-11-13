@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Сборка tor: сервис встроенного Tor (org.torproject.jni.TorService, tor-android). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <service
+            android:name="org.torproject.jni.TorService"
+            android:exported="false" />
+    </application>
+</manifest>

@@ -1,5 +1,6 @@
 package com.dpsmpx.dpcall.data
 
+import com.dpsmpx.dpcall.BuildConfig
 import android.content.Context
 import com.dpsmpx.dpcall.signaling.relay.RelayPool
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -85,6 +86,18 @@ class AppSettings private constructor(context: Context) {
     fun setHardBackground(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_HARD_BACKGROUND, enabled).apply()
         _hardBackground.value = enabled
+    }
+
+    private val _torSignaling = MutableStateFlow(prefs.getBoolean(KEY_TOR, BuildConfig.TOR))
+    /**
+     * Сигнальный канал через встроенный Tor (только сборка tor; там включено по умолчанию):
+     * релеи не видят IP-адрес. Звук по-прежнему идёт напрямую или через TURN.
+     */
+    val torSignaling: StateFlow<Boolean> = _torSignaling.asStateFlow()
+
+    fun setTorSignaling(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_TOR, enabled).apply()
+        _torSignaling.value = enabled
     }
 
     private val _vendorSetupDone = MutableStateFlow(prefs.getBoolean(KEY_VENDOR_SETUP, false))
@@ -212,6 +225,7 @@ class AppSettings private constructor(context: Context) {
         private const val KEY_ONBOARDING = "onboarding_shown"
         private const val KEY_RELAYS = "relays"
         private const val KEY_HARD_BACKGROUND = "hard_background"
+        private const val KEY_TOR = "tor_signaling"
         private const val KEY_VENDOR_SETUP = "vendor_setup_done"
         private const val KEY_TURN_URL = "turn_url"
         private const val KEY_TURN_USER = "turn_user"

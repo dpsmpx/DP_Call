@@ -6,6 +6,7 @@ import com.dpsmpx.dpcall.call.CallManager
 import com.dpsmpx.dpcall.webrtc.CallState
 import com.dpsmpx.dpcall.webrtc.PathCheck
 import com.dpsmpx.dpcall.webrtc.PathProbe
+import com.dpsmpx.dpcall.tor.TorState
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
@@ -212,7 +213,7 @@ fun HomeScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     item(key = "status") {
-                        ReadinessBanner(readiness, pathCheck) {
+                        ReadinessBanner(readiness, pathCheck, relayStatus.tor) {
                             when (readiness) {
                                 Readiness.NO_NOTIFICATIONS -> openNotificationSettings(context)
                                 Readiness.BATTERY_RESTRICTED -> requestBatteryExemption(context)
@@ -501,16 +502,21 @@ private fun readinessOf(
 }
 
 @Composable
-private fun ReadinessBanner(readiness: Readiness, path: PathCheck?, onClick: () -> Unit) {
+private fun ReadinessBanner(readiness: Readiness, path: PathCheck?, tor: TorState?, onClick: () -> Unit) {
     val warning = if (isSystemInDarkTheme()) Color(0xFFFFC04D) else Color(0xFF8A5A00)
     val color = when (readiness) {
         Readiness.READY -> OnlineGreen
-        Readiness.OFFLINE -> MaterialTheme.colorScheme.error
+        // Tor ещё строит цепочку — это ожидание, а не поломка.
+        Readiness.OFFLINE -> if (tor == TorState.STARTING) warning else MaterialTheme.colorScheme.error
         else -> warning
     }
     val text = when (readiness) {
-        Readiness.READY -> stringResource(R.string.online_banner)
-        Readiness.OFFLINE -> stringResource(R.string.listen_offline)
+        Readiness.READY -> stringResource(if (tor != null) R.string.online_banner_tor else R.string.online_banner)
+        Readiness.OFFLINE -> when (tor) {
+            TorState.STARTING -> stringResource(R.string.tor_starting)
+            TorState.FAILED -> stringResource(R.string.tor_failed)
+            else -> stringResource(R.string.listen_offline)
+        }
         Readiness.NO_PATH -> stringResource(R.string.ready_no_path)
         Readiness.NO_NOTIFICATIONS -> stringResource(R.string.ready_no_notifications)
         Readiness.BACKGROUND_OFF -> stringResource(R.string.ready_background_off)
