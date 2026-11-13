@@ -1,6 +1,7 @@
-* Tor build: DP_Call-Tor.apk — relays do not see your IP
-* Connection check: the banner warns when the network will not let a call through
-* More reliable call delivery: spare relays, faster resends in the first seconds
-* Audio adapts to the connection; softer noise gate; see how well you hear the other person
+* Russia: Yandex STUN, relay connections renewed before the 16 KB freeze, whitelist mode detected
+* Tor build: DP_Call-Tor.apk with built-in or your own bridges
+* Network test with a report; "Tell them by SMS" when a call does not get through
+* More reliable delivery: spare relays, faster resends
+* Audio adapts to the connection; softer noise gate
 * Scanned QR: Call or Save right away
-* Setup hints for Xiaomi, Huawei, Samsung and others, plus an Always connected mode
+* Setup hints for Xiaomi, Huawei, Samsung and others; Always connected mode

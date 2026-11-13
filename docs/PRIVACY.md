@@ -42,8 +42,15 @@ DP Call не имеет собственных серверов, учётных 
 - *Собеседнику* — ваш IP-адрес (это свойство прямого соединения) и звук разговора,
   зашифрованный DTLS-SRTP. Чтобы скрыть IP, используйте VPN.
 
+- *Яндексу* (ya.ru) — только когда ни один релей не отвечает дольше 15 секунд: приложение
+  проверяет, открывается ли сайт из «белых списков», чтобы объяснить, почему нет связи.
+  Яндекс видит ваш IP-адрес и сам запрос, больше ничего. В сборке с Tor не используется.
+- *Подробный тест сети* — только по вашей кнопке: соединяется с релеями, STUN- и
+  TURN-серверами и ya.ru; отчёт отправляете вы сами, IP-адресов в нём нет.
+
 **Сборка с Tor** (`DP_Call-Tor.apk`): обмен с релеями и проверка обновлений идут через сеть
-Tor — релеи и GitHub видят адрес выхода Tor вместо вашего. К STUN/TURN-серверам и
+Tor — релеи и GitHub видят адрес выхода Tor вместо вашего. С мостами Tor также соединяется
+с выбранными мостами (встроенными мостами Tor Browser или вашими). К STUN/TURN-серверам и
 собеседнику звук идёт мимо Tor, как описано выше.
 
 **Разрешения**
@@ -96,8 +103,15 @@ encrypted with your password. It is saved where you choose; the app never sends 
 - *The other party* learns your IP address (inherent to a direct connection) and receives
   the audio, encrypted with DTLS-SRTP. Use a VPN to hide your IP address.
 
+- *Yandex* (ya.ru) — only when no relay has answered for 15 seconds: the app checks whether
+  a whitelisted site opens, to explain why there is no connection. Yandex sees your IP
+  address and the request, nothing else. Not used in the Tor build.
+- *The detailed network test* — only when you tap it: it connects to the relays, STUN and
+  TURN servers and ya.ru; you share the report yourself, and it contains no IP addresses.
+
 **Tor build** (`DP_Call-Tor.apk`): relay traffic and the update check go through the Tor
-network, so relays and GitHub see a Tor exit address instead of yours. Audio to STUN/TURN
+network, so relays and GitHub see a Tor exit address instead of yours. With bridges, Tor
+also connects to the chosen bridges (Tor Browser's built-in ones or yours). Audio to STUN/TURN
 servers and to the other party does not go through Tor, as described above.
 
 **Permissions**

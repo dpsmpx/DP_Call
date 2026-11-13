@@ -67,6 +67,18 @@ it has already seen (call ids persisted in settings) and shows a missed call.
   repeatedly is benched for 5 min, doubling up to 60 min — never while no other relay is
   open. When fewer than 3 primary relays are in rotation, spare relays are engaged (default
   relay list only).
+- In Russia, connections to large foreign hosters (Cloudflare, Hetzner, OVH, …) freeze after
+  ~14–25 KB sent by the server. Each relay link counts bytes received (TLS handshake,
+  frames, pongs) and at ~9 KB opens a replacement socket, subscribes on it and only then
+  closes the old one. Stored missed-call notes are re-requested from the last EOSE, not for
+  the whole 48 h window.
+- `NetworkRestriction`: when no relay has answered for 15 s, a HEAD to ya.ru tells "no
+  internet" from "mobile whitelist mode" (cellular) or "relays blocked" (other networks).
+  Skipped in Tor mode.
+- `NetworkTest` (on demand): each relay with a ~30 KB request to detect the freeze, a STUN
+  Binding to each STUN server, TCP to TURN and ya.ru; a shareable report without IPs.
+- A setup failure after ICE reached CONNECTED is reported as a blocked DTLS handshake,
+  otherwise as no ICE path.
 - Offers are resent at 1.5 s, 2.5 s, 4 s and then every 5 s (≈43 s), answers at 1–3 s
   (≈14 s); candidate lists are repeated twice. With no relay connected, sending is retried
   every second within the same budget.
@@ -138,7 +150,8 @@ All UI text lives in `res/values/strings.xml` (English, default) and `res/values
 
 ## ICE
 
-- STUN: Google public
+- STUN: Yandex first (`stun.rtc.yandex.net`; public STUN servers are blocked by destination
+  in Russia), then Google and Cloudflare
 - TURN: public Open Relay (`staticauth.openrelay.metered.ca`), plus an optional
   user-provided TURN server from Settings. A free public TURN server gives no availability
   guarantee; without any working TURN, calls only connect when a direct path exists.
@@ -149,7 +162,11 @@ Product flavors `standard` and `tor` share the application ID, version and signa
 `tor`, `TorProxy` binds the embedded `TorService` (tor-android) and exposes its SOCKS port
 once a circuit is established; `RelaySignaling` connects to relays only through that proxy
 (hostnames are resolved by Tor) and never falls back to a direct connection. The update
-check uses the same proxy. WebRTC media and the path probe do not go through Tor. In
+check uses the same proxy. WebRTC media and the path probe do not go through Tor.
+Bridges: IPtProxy (Lyrebird + Snowflake) runs obfs4, webtunnel, snowflake and meek_lite
+locally; `TorBridges` builds the torrc (`UseBridges`, `ClientTransportPlugin`, `Bridge`)
+before `TorService` starts. Built-in bridges come from Tor Browser's `pt_config.json`
+(`src/tor/assets/builtin_bridges.txt`). The Tor build stores native libraries compressed. In
 `standard`, `TorProxy` is a stub with `available = false`.
 
 ## Constraints

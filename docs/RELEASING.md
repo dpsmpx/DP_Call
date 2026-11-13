@@ -143,6 +143,12 @@ sources jar той же версии (`app/src/tor/java/org/torproject/jni/`, л
 `app/src/tor/TOR-ANDROID-LICENSE`). Классы из AAR не подходят: начиная с 0.4.9.11 они
 собраны под Java 24 и compileSdk 37, которые наш набор инструментов не принимает.
 
+Мосты: `com.netzarchitekten:IPtProxy` (Lyrebird и Snowflake, Go). Встроенные мосты —
+`app/src/tor/assets/builtin_bridges.txt`, из `projects/tor-expert-bundle/pt_config.json`
+репозитория tor-browser-build; при выпуске стоит обновлять их из свежего Tor Browser.
+Сборка tor хранит нативные библиотеки сжатыми (`useLegacyPackaging`), иначе APK был бы
+около 85 МБ.
+
 Обновление Tor: поменяйте `TOR_ANDROID_VERSION` в `app/build.gradle.kts`, замените
 `TorService.java` файлом из `tor-android-<версия>-sources.jar` (Maven Central) и версию в
 `org/torproject/jni/BuildConfig.java`. Затем соберите `assembleTorRelease` и проверьте на
