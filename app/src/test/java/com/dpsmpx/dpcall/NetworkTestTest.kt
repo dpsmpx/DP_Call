@@ -12,7 +12,8 @@ class NetworkTestTest {
     fun relayVerdicts() {
         assertEquals(RelayResult.NO_CONNECTION, NetworkTest.classifyRelay(connected = false, bytes = 0, completed = false))
         assertEquals(RelayResult.FROZE, NetworkTest.classifyRelay(connected = true, bytes = 12_000, completed = false))
-        assertEquals(RelayResult.OK, NetworkTest.classifyRelay(connected = true, bytes = 4_000, completed = true))
+        assertEquals(RelayResult.INCONCLUSIVE, NetworkTest.classifyRelay(connected = true, bytes = 4_000, completed = true))
+        assertEquals(RelayResult.INCONCLUSIVE, NetworkTest.classifyRelay(connected = true, bytes = 0, completed = false))
         assertEquals(RelayResult.OK, NetworkTest.classifyRelay(connected = true, bytes = 31_000, completed = false))
     }
 

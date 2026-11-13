@@ -219,16 +219,16 @@ fun HomeScreen(
                         if (com.dpsmpx.dpcall.carrier.CarrierTransport.available) {
                             com.dpsmpx.dpcall.carrier.CarrierPanel()
                         } else {
-                        ReadinessBanner(readiness, pathCheck, relayStatus.tor, restriction) {
-                            when (readiness) {
-                                Readiness.NO_NOTIFICATIONS -> openNotificationSettings(context)
-                                Readiness.BATTERY_RESTRICTED -> requestBatteryExemption(context)
-                                Readiness.VENDOR_SETUP -> showVendorSetup = true
-                                Readiness.READY, Readiness.NO_PATH, Readiness.OFFLINE -> showConnectionCheck = true
-                                else -> showSettings = true
+                            ReadinessBanner(readiness, pathCheck, relayStatus.tor, restriction) {
+                                when (readiness) {
+                                    Readiness.NO_NOTIFICATIONS -> openNotificationSettings(context)
+                                    Readiness.BATTERY_RESTRICTED -> requestBatteryExemption(context)
+                                    Readiness.VENDOR_SETUP -> showVendorSetup = true
+                                    Readiness.READY, Readiness.NO_PATH, Readiness.OFFLINE -> showConnectionCheck = true
+                                    else -> showSettings = true
+                                }
                             }
                         }
-                    }
                     }
                     update?.let { available ->
                         item(key = "update") {

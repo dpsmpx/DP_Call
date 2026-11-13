@@ -41,6 +41,7 @@ object CarrierTransport {
     @Volatile private var lastPeerAt = 0L
     private var generation = 0
     private var monitor: Job? = null
+    private var closing: Job? = null
     val ready: Boolean get() = backend != null && System.currentTimeMillis() - lastPeerAt in 0..10_000L
     val turn: CarrierTurn? get() = backend?.let { CarrierTurn(it.turnUrl, it.username, it.password) }
 
@@ -53,7 +54,9 @@ object CarrierTransport {
         _status.value = CarrierStatus("connecting", peerCode, room.provider)
         val app = context.applicationContext
         monitor = scope.launch {
+            var pending: CarrierBackend? = null
             try {
+                closing?.join()
                 val keys = IdentityRepository(app).loadKeys()
                 require(!peer.contentEquals(keys.public))
                 val key = RelayCrypto.hkdf(RelayCrypto.sharedSecret(keys.secret, peer),
@@ -78,9 +81,11 @@ object CarrierTransport {
                             }
                         }
                     })
+                pending = created
                 withContext(Dispatchers.Main) {
                     if (gen != generation) { created.close(); return@withContext }
                     backend = created
+                    pending = null
                     created.start(room.provider, room.url)
                 }
                 while (isActive && gen == generation) {
@@ -95,7 +100,7 @@ object CarrierTransport {
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 main.post { if (gen == generation) _status.value = _status.value.copy(phase = "failed") }
-            }
+            } finally { pending?.close() }
         }
     }
 
@@ -109,7 +114,7 @@ object CarrierTransport {
         generation++
         monitor?.cancel(); monitor = null
         val previous = backend; backend = null
-        if (previous != null) scope.launch { previous.close() }
+        if (previous != null) closing = scope.launch { previous.close() }
         lastPeerAt = 0
         _status.value = CarrierStatus()
         if (available) RelaySignaling.carrierStatusChanged(false)

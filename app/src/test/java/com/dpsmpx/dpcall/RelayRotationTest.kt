@@ -16,6 +16,8 @@ class RelayRotationTest {
         val keys = IdentityGenerator.generate()
         val event = NostrEvent.create(keys.secret, keys.public, NostrEvent.KIND_CALL_SIGNAL,
             listOf(listOf("p", "inbox")), "encrypted-body")
+        val nextEvent = NostrEvent.create(keys.secret, keys.public, NostrEvent.KIND_CALL_SIGNAL,
+            listOf(listOf("p", "inbox")), "next-body")
         var old: WebSocket? = null
         server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) { old = webSocket }
@@ -28,7 +30,9 @@ class RelayRotationTest {
             override fun onMessage(webSocket: WebSocket, text: String) {
                 val message = "[\"EVENT\",\"dpcall\",${event.toJson()}]"
                 old!!.send(message)
-                webSocket.send(message)
+                val nextMessage = "[\"EVENT\",\"dpcall\",${nextEvent.toJson()}]"
+                webSocket.send(nextMessage)
+                webSocket.send(nextMessage)
             }
         }))
         server.start()
@@ -37,9 +41,10 @@ class RelayRotationTest {
             onEvent = { delivered += it }, onStatus = { _, _ -> })
         try {
             pool.start()
-            assertEquals(event.id, delivered.poll(10, TimeUnit.SECONDS)?.id)
+            val ids = setOf(delivered.poll(10, TimeUnit.SECONDS)?.id, delivered.poll(10, TimeUnit.SECONDS)?.id)
+            assertEquals(setOf(event.id, nextEvent.id), ids)
             assertNull(delivered.poll(200, TimeUnit.MILLISECONDS))
             assertEquals(2, server.requestCount)
-        } finally { pool.stop(); old?.cancel(); server.shutdown() }
+        } finally { pool.stop(); old?.close(1000, null); server.shutdown() }
     }
 }

@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -31,25 +32,27 @@ type Callbacks interface {
 }
 
 type Session struct {
-	mu          sync.Mutex
-	cb          Callbacks
-	aead        cipher.AEAD
-	receiveAEAD cipher.AEAD
-	out         chan []byte
-	seen        map[string]bool
-	seenOrder   []string
-	tun         tunnel.DataTunnel
-	closer      interface{ Close() }
-	server      *turn.Server
-	control     net.PacketConn
-	relays      map[int]*packetConn
-	nextPort    int
-	localIP     net.IP
-	remoteIP    net.IP
-	user        string
-	password    string
-	closed      bool
-	stop        chan struct{}
+	challenge     []byte
+	peerChallenge []byte
+	mu            sync.Mutex
+	cb            Callbacks
+	aead          cipher.AEAD
+	receiveAEAD   cipher.AEAD
+	out           chan []byte
+	seen          map[string]bool
+	seenOrder     []string
+	tun           tunnel.DataTunnel
+	closer        interface{ Close() }
+	server        *turn.Server
+	control       net.PacketConn
+	relays        map[int]*packetConn
+	nextPort      int
+	localIP       net.IP
+	remoteIP      net.IP
+	user          string
+	password      string
+	closed        bool
+	stop          chan struct{}
 }
 
 // NewSession only opens a loopback TURN listener. Start joins the remote room.
@@ -83,6 +86,10 @@ func NewSession(key []byte, first bool, cb Callbacks) (*Session, error) {
 	s.remoteIP = net.ParseIP("198.18.0.2")
 	if !first {
 		s.localIP, s.remoteIP = s.remoteIP, s.localIP
+	}
+	s.challenge = make([]byte, 16)
+	if _, err = rand.Read(s.challenge); err != nil {
+		return nil, err
 	}
 	credentials := make([]byte, 32)
 	if _, err = rand.Read(credentials); err != nil {
@@ -193,6 +200,15 @@ func (s *Session) send(kind byte, body []byte) bool {
 	if _, err := rand.Read(nonce); err != nil {
 		return false
 	}
+	if kind == 1 || kind == 2 {
+		s.mu.Lock()
+		peerChallenge := append([]byte(nil), s.peerChallenge...)
+		s.mu.Unlock()
+		if len(peerChallenge) != 16 {
+			return false
+		}
+		body = append(peerChallenge, body...)
+	}
 	plain := append([]byte{kind}, body...)
 	sealed := s.aead.Seal(nonce, nonce, plain, frameAAD)
 	s.mu.Lock()
@@ -219,7 +235,7 @@ func (s *Session) writeLoop() {
 		case <-s.stop:
 			return
 		case <-ticker.C:
-			s.send(0, nil)
+			s.send(0, s.challenge)
 		case raw := <-s.out:
 			s.mu.Lock()
 			t := s.tun
@@ -257,9 +273,24 @@ func (s *Session) receive(raw []byte) {
 		s.seenOrder = s.seenOrder[1:]
 	}
 	s.mu.Unlock()
+	if plain[0] == 1 || plain[0] == 2 {
+		if len(plain) < 17 || subtle.ConstantTimeCompare(plain[1:17], s.challenge) != 1 {
+			return
+		}
+		plain = append([]byte{plain[0]}, plain[17:]...)
+	}
 	switch plain[0] {
 	case 0:
-		s.EmitStatus("peer_ready")
+		if len(plain) == 17 {
+			s.mu.Lock()
+			s.peerChallenge = append([]byte(nil), plain[1:]...)
+			s.mu.Unlock()
+			s.send(3, plain[1:])
+		}
+	case 3:
+		if len(plain) == 17 && subtle.ConstantTimeCompare(plain[1:], s.challenge) == 1 {
+			s.EmitStatus("peer_ready")
+		}
 	case 1:
 		s.cb.Signal(plain[1:])
 	case 2:

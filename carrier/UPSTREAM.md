@@ -22,8 +22,9 @@ The pair key is HKDF-SHA256(ECDH(identity keys), SHA256(canonical room URL),
 reflection; random 96-bit nonces and a bounded 65,536 nonce replay cache protect
 frames. The service's room-link-derived obfuscation is only an outer wrapper;
 knowing the room link does not reveal the pair key. The media also retains its
-independent end-to-end DTLS-SRTP encryption. Authenticated heartbeats distinguish
-"joined SFU" from "peer reachable". The selected peer must be present; the room
+independent end-to-end DTLS-SRTP encryption. Fresh random challenge/response heartbeats distinguish
+"joined SFU" from "peer reachable". Data frames are bound to the receiver’s fresh session challenge,
+so an old session’s recorded frames cannot be reused after reconnect. The selected peer must be present; the room
 itself is not treated as proof of peer connectivity.
 
 Only the Experimental APK includes this module. Its application ID is

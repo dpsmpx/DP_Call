@@ -48,7 +48,7 @@ jobs:
           path: |
             carrier/mobile.aar
             app/src/experimental/assets/carrier-licenses.txt
-          key: carrier-android29-go1261-${{ hashFiles('carrier/**') }}
+          key: carrier-android29-go1261-${{ hashFiles('carrier/*.go', 'carrier/build.sh', 'carrier/UPSTREAM-LICENSE') }}
 
       - name: Build experimental carrier (pinned upstream, Go race tests)
         if: steps.carrier-cache.outputs.cache-hit != 'true'
@@ -57,6 +57,15 @@ jobs:
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
           export CGO_LDFLAGS="-Wl,-z,max-page-size=16384"
           ./carrier/build.sh
+
+      - name: Save built carrier before Android checks
+        if: steps.carrier-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            carrier/mobile.aar
+            app/src/experimental/assets/carrier-licenses.txt
+          key: carrier-android29-go1261-${{ hashFiles('carrier/*.go', 'carrier/build.sh', 'carrier/UPSTREAM-LICENSE') }}
 
       - name: Unit tests and lint
         run: ./gradlew --no-daemon testStandardDebugUnitTest testTorDebugUnitTest testExperimentalDebugUnitTest lintStandardDebug lintTorDebug lintExperimentalDebug

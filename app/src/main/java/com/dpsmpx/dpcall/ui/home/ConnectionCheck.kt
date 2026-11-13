@@ -30,6 +30,8 @@ import com.dpsmpx.dpcall.ui.components.shareText
 import com.dpsmpx.dpcall.util.NetworkTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.LaunchedEffect
@@ -151,12 +153,13 @@ private fun CheckRow(label: String, value: String, color: Color) {
 @Composable
 private fun NetworkTestDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val lines = remember { mutableStateListOf<NetworkTest.Line>() }
     var report by remember { mutableStateOf<String?>(null) }
     val good = Color(0xFF2E9E5B)
     LaunchedEffect(Unit) {
         report = withContext(Dispatchers.IO) {
-            NetworkTest.run(context) { line -> lines += line }
+            NetworkTest.run(context) { line -> scope.launch { lines += line } }
         }
     }
     AlertDialog(

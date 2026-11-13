@@ -15,6 +15,11 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.jsonPrimitive
+import com.dpsmpx.dpcall.tor.TorProxy
+import java.net.Proxy
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
@@ -37,7 +42,7 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object NetworkTest {
 
-    enum class RelayResult { OK, FROZE, NO_CONNECTION }
+    enum class RelayResult { OK, FROZE, NO_CONNECTION, INCONCLUSIVE }
 
     data class Line(val label: String, val result: String, val good: Boolean?)
 
@@ -49,11 +54,12 @@ object NetworkTest {
 
     /**
      * Итог проверки релея. Замирание: соединение было, данные шли и встали, не дойдя до
-     * конца ответа. Маленький ответ целиком — тоже ok: замирать было нечему.
+     * конца ответа. Маленький ответ не проверяет порог замирания: результат неизвестен.
      */
     fun classifyRelay(connected: Boolean, bytes: Long, completed: Boolean): RelayResult = when {
         !connected -> RelayResult.NO_CONNECTION
-        completed || bytes >= RELAY_TARGET_BYTES -> RelayResult.OK
+        bytes >= RELAY_TARGET_BYTES -> RelayResult.OK
+        completed || bytes == 0L -> RelayResult.INCONCLUSIVE
         else -> RelayResult.FROZE
     }
 
@@ -79,18 +85,22 @@ object NetworkTest {
         }
 
         val settings = AppSettings.get(app)
-        val relays = (settings.relays.value + RelayPool.SPARE_RELAYS).distinct()
+        val selected = settings.relays.value
+        val relays = (selected + if (selected == RelayPool.DEFAULT_RELAYS) RelayPool.SPARE_RELAYS else emptyList()).distinct()
+        val viaTor = TorProxy.available && settings.torSignaling.value
+        val proxy = if (viaTor) TorProxy.proxy() else null
         relays.forEach { url ->
-            val (result, kb) = testRelay(url)
+            val (result, kb) = if (viaTor && proxy == null) RelayResult.NO_CONNECTION to 0L else testRelay(url, proxy)
             emit(
                 Line(
                     url.removePrefix("wss://"),
                     when (result) {
                         RelayResult.OK -> "ok"
                         RelayResult.FROZE -> "froze after ~$kb KB"
-                        RelayResult.NO_CONNECTION -> "no connection"
+                        RelayResult.NO_CONNECTION -> if (viaTor && proxy == null) "Tor not ready" else "no connection"
+                        RelayResult.INCONCLUSIVE -> "small or empty response; freeze test inconclusive"
                     },
-                    result == RelayResult.OK
+                    if (result == RelayResult.INCONCLUSIVE) null else result == RelayResult.OK
                 )
             )
         }
@@ -166,9 +176,10 @@ object NetworkTest {
      * Подключается к релею и просит последние публичные записи — ответ заведомо больше
      * порога замирания. @return итог и сколько килобайт пришло.
      */
-    private fun testRelay(url: String): Pair<RelayResult, Long> {
+    private fun testRelay(url: String, proxy: Proxy? = null): Pair<RelayResult, Long> {
         val client = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
+            .connectTimeout(if (proxy == null) 10 else 30, TimeUnit.SECONDS)
+            .apply { if (proxy != null) proxy(proxy) }
             .readTimeout(0, TimeUnit.SECONDS)
             .build()
         val bytes = AtomicLong(0)
@@ -185,10 +196,9 @@ object NetworkTest {
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 lastData.set(System.currentTimeMillis())
-                if (text.startsWith("[\"EOSE\"") || bytes.addAndGet(text.length.toLong()) >= RELAY_TARGET_BYTES) {
-                    completed.set(true)
-                    done.countDown()
-                }
+                val type = runCatching { (Json.parseToJsonElement(text) as? JsonArray)?.firstOrNull()?.jsonPrimitive?.content }.getOrNull()
+                if (type == "EOSE") { completed.set(true); done.countDown() }
+                if (type == "EVENT" && bytes.addAndGet(text.toByteArray(Charsets.UTF_8).size.toLong()) >= RELAY_TARGET_BYTES) done.countDown()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) = done.countDown()
@@ -201,6 +211,7 @@ object NetworkTest {
             done.await(200, TimeUnit.MILLISECONDS)
         }
         socket.cancel()
+        client.connectionPool.evictAll()
         client.dispatcher.executorService.shutdown()
         val result = classifyRelay(connected.get(), bytes.get(), completed.get())
         return result to bytes.get() / 1000

@@ -2,6 +2,7 @@ package mobile
 
 import (
 	"bytes"
+	"crypto/rand"
 	"github.com/kulikov0/headless-client/webrtc"
 	"github.com/pion/turn/v4"
 	"net"
@@ -33,9 +34,11 @@ func pair(t *testing.T) (*Session, *Session, *callbacks, *callbacks) {
 	}
 	x.mu.Lock()
 	x.tun = &wire{y.receive}
+	x.peerChallenge = append([]byte(nil), y.challenge...)
 	x.mu.Unlock()
 	y.mu.Lock()
 	y.tun = &wire{x.receive}
+	y.peerChallenge = append([]byte(nil), x.challenge...)
 	y.mu.Unlock()
 	t.Cleanup(x.Close)
 	t.Cleanup(y.Close)
@@ -226,5 +229,44 @@ func TestEchoAndReplayRejected(t *testing.T) {
 	case <-b.signals:
 		t.Fatal("accepted replay")
 	default:
+	}
+}
+
+type livenessCallbacks struct{ statuses chan string }
+
+func (c *livenessCallbacks) Signal([]byte)   {}
+func (c *livenessCallbacks) Status(s string) { c.statuses <- s }
+func TestLivenessRequiresCurrentSessionChallenge(t *testing.T) {
+	cb := &livenessCallbacks{make(chan string, 2)}
+	key := bytes.Repeat([]byte{9}, 32)
+	x, err := NewSession(key, true, cb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer x.Close()
+	y, err := NewSession(key, false, &callbacks{make(chan []byte, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer y.Close()
+	reply := func(challenge []byte) {
+		nonce := make([]byte, y.aead.NonceSize())
+		rand.Read(nonce)
+		x.receive(y.aead.Seal(nonce, nonce, append([]byte{3}, challenge...), frameAAD))
+	}
+	reply(make([]byte, 16))
+	select {
+	case <-cb.statuses:
+		t.Fatal("stale challenge authenticated")
+	default:
+	}
+	reply(x.challenge)
+	select {
+	case phase := <-cb.statuses:
+		if phase != "peer_ready" {
+			t.Fatal(phase)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("fresh challenge rejected")
 	}
 }
