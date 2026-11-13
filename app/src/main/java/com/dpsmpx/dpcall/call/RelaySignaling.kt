@@ -86,13 +86,13 @@ object RelaySignaling {
                     synchronized(this@RelaySignaling) {
                         if (gen != generation || CarrierTransport.active) return@launch
                         TorProxy.start(app)
-                    }
-                    torWatch?.cancel()
-                    torWatch = launch {
+                        torWatch?.cancel()
+                        torWatch = launch {
                         TorProxy.state.collect { tor ->
                             synchronized(this@RelaySignaling) {
                                 if (gen == generation && !CarrierTransport.active) _status.update { it.copy(tor = tor) }
                             }
+                        }
                         }
                     }
                     TorProxy.state.first { it == TorState.READY }

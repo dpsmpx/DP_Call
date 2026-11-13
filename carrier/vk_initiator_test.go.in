@@ -4,6 +4,7 @@ import (
 	"github.com/kulikov0/headless-client/webrtc"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -38,9 +39,20 @@ func TestDPCallGuestInitiatorOffersOnlyWhenReady(t *testing.T) {
 	if pc.LocalDescription() == nil || pc.LocalDescription().Type != webrtc.SDPTypeOffer {
 		t.Fatal("initiator did not offer")
 	}
-	before := pc.LocalDescription().SDP
+	// Trickle ICE appends candidates to LocalDescription asynchronously. The
+	// origin/session version identifies a new offer without comparing those routes.
+	origin := func(sdp string) string {
+		for _, line := range strings.Split(sdp, "\n") {
+			if strings.HasPrefix(line, "o=") {
+				return strings.TrimSpace(line)
+			}
+		}
+		t.Fatal("offer lacks origin")
+		return ""
+	}
+	before := origin(pc.LocalDescription().SDP)
 	j.maybeOffer()
-	if pc.LocalDescription().SDP != before {
+	if origin(pc.LocalDescription().SDP) != before {
 		t.Fatal("duplicate registration renegotiated")
 	}
 }
