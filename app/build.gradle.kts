@@ -160,6 +160,8 @@ dependencies {
     torNative("info.guardianproject:tor-android:$TOR_ANDROID_VERSION@aar")
     "torImplementation"("info.guardianproject:jtorctl:0.4.5.7")
     "torImplementation"("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
+    // Мосты Tor (obfs4, webtunnel, snowflake, meek): Lyrebird и Snowflake от Guardian Project.
+    "torImplementation"("com.netzarchitekten:IPtProxy:5.7.0")
     // QR-коды: показ своего кода и сканирование кода собеседника
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 
@@ -193,4 +195,12 @@ val extractTorNative = tasks.register<Sync>("extractTorNative") {
 android.sourceSets.getByName("tor").jniLibs.srcDir(layout.buildDirectory.dir("generated/torJni"))
 tasks.configureEach {
     if (name.startsWith("mergeTor") && name.endsWith("JniLibFolders")) dependsOn(extractTorNative)
+}
+
+// Сборка tor хранит нативные библиотеки сжатыми: Tor и мосты (IPtProxy, на Go) весят около
+// 60 МБ без сжатия, со сжатием APK меньше примерно вдвое. Обычная сборка не меняется.
+androidComponents {
+    onVariants(selector().withFlavor("transport" to "tor")) { variant ->
+        variant.packaging.jniLibs.useLegacyPackaging.set(true)
+    }
 }

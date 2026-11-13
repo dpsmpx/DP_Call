@@ -6,7 +6,11 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
 import android.util.Log
+import com.dpsmpx.dpcall.data.AppSettings
 import com.dpsmpx.dpcall.util.AppLog
+import IPtProxy.Controller
+import IPtProxy.IPtProxy
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,6 +32,9 @@ object TorProxy {
     private const val TAG = "TorProxy"
     /** Сколько ждать первой цепочки, прежде чем сообщить о неудаче (ожидание продолжается). */
     private const val START_TIMEOUT_MS = 120_000L
+    /** Через мосты (особенно snowflake и meek) цепочка строится дольше. */
+    private const val START_TIMEOUT_BRIDGES_MS = 240_000L
+    private const val BUILTIN_BRIDGES_ASSET = "builtin_bridges.txt"
 
     const val available = true
 
@@ -45,6 +52,10 @@ object TorProxy {
     private var connection: ServiceConnection? = null
     private var poll: ScheduledFuture<*>? = null
     private var startedAt = 0L
+    private var timeoutMs = START_TIMEOUT_MS
+    /** Способы маскировки мостов (Lyrebird, Snowflake), запущенные в процессе. */
+    private var transports: Controller? = null
+    private val runningTransports = mutableListOf<String>()
 
     @Synchronized
     fun start(context: Context) {
@@ -52,7 +63,9 @@ object TorProxy {
         val app = context.applicationContext
         _state.value = TorState.STARTING
         startedAt = System.currentTimeMillis()
-        AppLog.add(TAG, "starting")
+        val bridges = configureBridges(app)
+        timeoutMs = if (bridges > 0) START_TIMEOUT_BRIDGES_MS else START_TIMEOUT_MS
+        AppLog.add(TAG, "starting, bridges=$bridges")
         val conn = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
                 service = (binder as? TorService.LocalBinder)?.service
@@ -91,6 +104,7 @@ object TorProxy {
         }
         service = null
         socksPort = -1
+        stopTransports()
         _state.value = TorState.OFF
         AppLog.add(TAG, "stopped")
     }
@@ -132,11 +146,66 @@ object TorProxy {
                 socksPort = port
                 _state.value = TorState.READY
             }
-            System.currentTimeMillis() - startedAt > START_TIMEOUT_MS -> _state.value = TorState.FAILED
+            System.currentTimeMillis() - startedAt > timeoutMs -> _state.value = TorState.FAILED
             else -> _state.value = TorState.STARTING
         }
         if (_state.value != previous) AppLog.add(TAG, "state ${_state.value}")
         // Пока не готов — часто, потом изредка: цепочка может пропасть при смене сети.
         schedulePoll(if (ready) 30 else 1)
+    }
+
+    /**
+     * Мосты: в России прямые подключения к Tor заблокированы. Запускает нужные способы
+     * маскировки (obfs4, webtunnel, snowflake, meek) и пишет torrc, который TorService
+     * прочитает при старте. @return сколько мостов задано.
+     */
+    private fun configureBridges(context: Context): Int {
+        val settings = AppSettings.get(context)
+        val bridges = when (settings.torBridgesMode.value) {
+            TorBridges.Mode.BUILTIN -> try {
+                TorBridges.parse(context.assets.open(BUILTIN_BRIDGES_ASSET).bufferedReader().use { it.readText() })
+            } catch (e: Exception) {
+                emptyList()
+            }
+            TorBridges.Mode.CUSTOM -> TorBridges.parse(settings.torCustomBridges)
+            TorBridges.Mode.NONE -> emptyList()
+        }
+        stopTransports()
+        val ports = mutableMapOf<String, Long>()
+        if (bridges.isNotEmpty()) {
+            val controller = transports ?: IPtProxy.newController(
+                File(context.filesDir, "pt").apply { mkdirs() }.absolutePath, false, false, "ERROR", null
+            ).also { transports = it }
+            for (transport in TorBridges.transportsOf(bridges)) {
+                try {
+                    controller.start(transport, "")
+                    val port = controller.port(transport)
+                    if (port > 0) {
+                        ports[transport] = port
+                        runningTransports += transport
+                    }
+                } catch (e: Exception) {
+                    AppLog.add(TAG, "transport $transport failed: $e")
+                }
+            }
+        }
+        try {
+            TorService.getTorrc(context).apply { parentFile?.mkdirs() }.writeText(TorBridges.torrc(bridges, ports))
+        } catch (e: Exception) {
+            AppLog.add(TAG, "torrc not written: $e")
+        }
+        return if (ports.isEmpty()) 0 else bridges.count { ports.containsKey(it.substringBefore(' ')) }
+    }
+
+    private fun stopTransports() {
+        val controller = transports ?: return
+        runningTransports.forEach { transport ->
+            try {
+                controller.stop(transport)
+            } catch (e: Exception) {
+                AppLog.add(TAG, "transport $transport stop: $e")
+            }
+        }
+        runningTransports.clear()
     }
 }

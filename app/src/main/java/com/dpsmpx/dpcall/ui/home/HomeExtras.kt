@@ -2,6 +2,8 @@ package com.dpsmpx.dpcall.ui.home
 
 import androidx.compose.ui.res.stringResource
 import com.dpsmpx.dpcall.R
+import com.dpsmpx.dpcall.tor.TorBridges
+import androidx.compose.material3.RadioButton
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dpsmpx.dpcall.tor.TorProxy
 import androidx.compose.material3.Switch
@@ -363,6 +365,7 @@ fun AdvancedSettings(onManualInvite: () -> Unit) {
                 RelaySignaling.restart(context)
             })
         }
+        if (tor) TorBridgesSection()
         Spacer(Modifier.height(16.dp))
     }
 
@@ -493,4 +496,72 @@ fun AdvancedSettings(onManualInvite: () -> Unit) {
         },
         modifier = Modifier.fillMaxWidth()
     ) { Text(stringResource(R.string.send_error_log)) }
+}
+
+/**
+ * Мосты Tor: в России прямое подключение к Tor заблокировано. Встроенные мосты — как в Tor
+ * Browser; свои можно получить у @GetBridgesBot или на bridges.torproject.org.
+ */
+@Composable
+private fun TorBridgesSection() {
+    val context = LocalContext.current
+    val settings = remember { AppSettings.get(context) }
+    val mode by settings.torBridgesMode.collectAsStateWithLifecycle()
+    var custom by remember { mutableStateOf(settings.torCustomBridges) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val noBridges = stringResource(R.string.tor_bridges_invalid)
+    val saved = stringResource(R.string.saved)
+
+    fun apply(newMode: TorBridges.Mode, text: String = custom) {
+        settings.setTorBridges(newMode, text)
+        // Мосты читаются при запуске Tor — перезапускаем его.
+        TorProxy.stop(context)
+        RelaySignaling.restart(context)
+    }
+
+    Spacer(Modifier.height(10.dp))
+    Text(stringResource(R.string.tor_bridges_title), style = MaterialTheme.typography.titleSmall)
+    Text(
+        stringResource(R.string.tor_bridges_desc),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    listOf(
+        TorBridges.Mode.BUILTIN to R.string.tor_bridges_builtin,
+        TorBridges.Mode.CUSTOM to R.string.tor_bridges_custom,
+        TorBridges.Mode.NONE to R.string.tor_bridges_none
+    ).forEach { (option, label) ->
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            RadioButton(selected = mode == option, onClick = {
+                error = null
+                if (option == TorBridges.Mode.CUSTOM && TorBridges.parse(custom).isEmpty()) {
+                    // Своих мостов ещё нет — сначала поле для них, переключимся после «Сохранить».
+                    settings.setTorBridges(TorBridges.Mode.CUSTOM, custom)
+                } else if (option != mode) {
+                    apply(option)
+                }
+            })
+            Text(stringResource(label), style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+    if (mode == TorBridges.Mode.CUSTOM) {
+        OutlinedTextField(
+            value = custom,
+            onValueChange = { custom = it; error = null },
+            label = { Text(stringResource(R.string.tor_bridges_field)) },
+            placeholder = { Text("webtunnel [2001:db8::1]:443 … url=…") },
+            isError = error != null,
+            supportingText = error?.let { { Text(it) } },
+            minLines = 3,
+            modifier = Modifier.fillMaxWidth()
+        )
+        FilledTonalButton(onClick = {
+            if (TorBridges.parse(custom).isEmpty()) {
+                error = noBridges
+            } else {
+                apply(TorBridges.Mode.CUSTOM, custom)
+                Toast.makeText(context, saved, Toast.LENGTH_SHORT).show()
+            }
+        }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.save)) }
+    }
 }

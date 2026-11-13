@@ -305,4 +305,11 @@
     <string name="network_test_share">Share report</string>
     <string name="sms_nudge">Tell them by SMS</string>
     <string name="sms_nudge_text">I\'m calling you in DP Call but can\'t get through. Open the app — preferably on Wi-Fi — and call me back. Don\'t have it yet? %1$s</string>
+    <string name="tor_bridges_title">Tor bridges</string>
+    <string name="tor_bridges_desc">Where Tor is blocked (Russia, Iran and others) it connects through bridges. Built-in bridges are the public ones from Tor Browser and can get blocked; your own bridges are more reliable: get them from @GetBridgesBot in Telegram or at bridges.torproject.org (webtunnel or obfs4).</string>
+    <string name="tor_bridges_builtin">Built-in bridges</string>
+    <string name="tor_bridges_custom">My bridges</string>
+    <string name="tor_bridges_none">No bridges</string>
+    <string name="tor_bridges_field">Bridges, one per line</string>
+    <string name="tor_bridges_invalid">No obfs4, webtunnel, snowflake or meek_lite bridge found</string>
 </resources>

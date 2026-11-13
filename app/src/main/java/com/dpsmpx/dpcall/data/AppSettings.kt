@@ -1,6 +1,7 @@
 package com.dpsmpx.dpcall.data
 
 import com.dpsmpx.dpcall.BuildConfig
+import com.dpsmpx.dpcall.tor.TorBridges
 import android.content.Context
 import com.dpsmpx.dpcall.signaling.relay.RelayPool
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -98,6 +99,21 @@ class AppSettings private constructor(context: Context) {
     fun setTorSignaling(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_TOR, enabled).apply()
         _torSignaling.value = enabled
+    }
+
+    private val _torBridgesMode = MutableStateFlow(
+        prefs.getString(KEY_TOR_BRIDGES_MODE, null)?.let { runCatching { TorBridges.Mode.valueOf(it) }.getOrNull() }
+            ?: TorBridges.Mode.BUILTIN
+    )
+    /** Мосты Tor: встроенные (по умолчанию — в России Tor без них заблокирован), свои или без мостов. */
+    val torBridgesMode: StateFlow<TorBridges.Mode> = _torBridgesMode.asStateFlow()
+
+    /** Свои мосты — текст, как его вставил пользователь. */
+    val torCustomBridges: String get() = prefs.getString(KEY_TOR_BRIDGES, "").orEmpty()
+
+    fun setTorBridges(mode: TorBridges.Mode, custom: String = torCustomBridges) {
+        prefs.edit().putString(KEY_TOR_BRIDGES_MODE, mode.name).putString(KEY_TOR_BRIDGES, custom).apply()
+        _torBridgesMode.value = mode
     }
 
     private val _vendorSetupDone = MutableStateFlow(prefs.getBoolean(KEY_VENDOR_SETUP, false))
@@ -226,6 +242,8 @@ class AppSettings private constructor(context: Context) {
         private const val KEY_RELAYS = "relays"
         private const val KEY_HARD_BACKGROUND = "hard_background"
         private const val KEY_TOR = "tor_signaling"
+        private const val KEY_TOR_BRIDGES_MODE = "tor_bridges_mode"
+        private const val KEY_TOR_BRIDGES = "tor_bridges"
         private const val KEY_VENDOR_SETUP = "vendor_setup_done"
         private const val KEY_TURN_URL = "turn_url"
         private const val KEY_TURN_USER = "turn_user"
