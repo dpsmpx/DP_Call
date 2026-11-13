@@ -16,6 +16,7 @@ class RelayMessenger(
     relays: List<String> = RelayPool.DEFAULT_RELAYS,
     /** Запасные релеи на случай, когда основные подводят. */
     spares: List<String> = emptyList(),
+    pingSec: Long = 40,
     private val onMessage: (fromCode: String, message: CallMessage) -> Unit,
     /** Забирать с релеев отметки о звонках, пропущенных, пока нас не было на связи. */
     receiveMissed: Boolean = false,
@@ -27,6 +28,7 @@ class RelayMessenger(
     private val pool = RelayPool(
         urls = relays,
         spares = spares,
+        pingSec = pingSec,
         inboxTag = Envelope.inboxTag(keys.public),
         kind = NostrEvent.KIND_CALL_SIGNAL,
         storedKind = NostrEvent.KIND_MISSED_CALL.takeIf { receiveMissed },

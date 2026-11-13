@@ -102,6 +102,7 @@ import com.dpsmpx.dpcall.call.RelayStatus
 import com.dpsmpx.dpcall.call.SignalResult
 import com.dpsmpx.dpcall.data.AppSettings
 import com.dpsmpx.dpcall.util.CodeValidator
+import com.dpsmpx.dpcall.util.Vendor
 import com.dpsmpx.dpcall.domain.Contact
 import com.dpsmpx.dpcall.ui.components.Avatar
 import com.dpsmpx.dpcall.ui.components.shareText
@@ -149,8 +150,10 @@ fun HomeScreen(
     LaunchedEffect(resumes) {
         PathProbe.runIfStale(context, busy = CallManager.uiState.value.state != CallState.IDLE)
     }
-    val readiness = remember(relayStatus.online, background, resumes, pathCheck) {
-        readinessOf(context, relayStatus.online, background, pathCheck)
+    val vendorSetupDone by appSettings.vendorSetupDone.collectAsStateWithLifecycle()
+    var showVendorSetup by remember { mutableStateOf(false) }
+    val readiness = remember(relayStatus.online, background, resumes, pathCheck, vendorSetupDone) {
+        readinessOf(context, relayStatus.online, background, pathCheck, vendorSetupDone)
     }
     // Журнал открыт — пропущенные просмотрены.
     LaunchedEffect(tab, unseenMissed) {
@@ -213,6 +216,7 @@ fun HomeScreen(
                             when (readiness) {
                                 Readiness.NO_NOTIFICATIONS -> openNotificationSettings(context)
                                 Readiness.BATTERY_RESTRICTED -> requestBatteryExemption(context)
+                                Readiness.VENDOR_SETUP -> showVendorSetup = true
                                 Readiness.READY, Readiness.NO_PATH, Readiness.OFFLINE -> showConnectionCheck = true
                                 else -> showSettings = true
                             }
@@ -393,6 +397,10 @@ fun HomeScreen(
         )
     }
 
+    if (showVendorSetup) {
+        Vendor.current()?.let { vendor -> VendorSetupDialog(vendor, onDismiss = { showVendorSetup = false }) }
+    }
+
     if (showConnectionCheck) {
         ConnectionCheckDialog(relayStatus, pathCheck, onDismiss = { showConnectionCheck = false })
     }
@@ -468,19 +476,27 @@ fun HomeScreen(
 private val OnlineGreen = Color(0xFF2E9E5B)
 
 /** Насколько приложение готово принять звонок. Порядок — от самого серьёзного препятствия. */
-private enum class Readiness { OFFLINE, NO_PATH, NO_NOTIFICATIONS, BACKGROUND_OFF, BATTERY_RESTRICTED, READY }
+private enum class Readiness { OFFLINE, NO_PATH, NO_NOTIFICATIONS, BACKGROUND_OFF, BATTERY_RESTRICTED, VENDOR_SETUP, READY }
 
 /**
  * Соединения с релеями мало: звонок не дойдёт, если Android усыпит приложение, и останется
  * незамеченным без уведомлений, а без прямого пути и TURN не соединится. Плашка зелёная,
  * только когда выполнено всё.
  */
-private fun readinessOf(context: Context, online: Boolean, background: Boolean, path: PathCheck?): Readiness = when {
+private fun readinessOf(
+    context: Context,
+    online: Boolean,
+    background: Boolean,
+    path: PathCheck?,
+    vendorSetupDone: Boolean
+): Readiness = when {
     !online -> Readiness.OFFLINE
     path?.blocked == true -> Readiness.NO_PATH
     !CallNotifications.canPostNotifications(context) -> Readiness.NO_NOTIFICATIONS
     !background -> Readiness.BACKGROUND_OFF
     !isBatteryUnrestricted(context) -> Readiness.BATTERY_RESTRICTED
+    // Оболочки Xiaomi, Huawei и др. закрывают приложение и без экономии батареи.
+    !vendorSetupDone && Vendor.current() != null -> Readiness.VENDOR_SETUP
     else -> Readiness.READY
 }
 
@@ -499,6 +515,7 @@ private fun ReadinessBanner(readiness: Readiness, path: PathCheck?, onClick: () 
         Readiness.NO_NOTIFICATIONS -> stringResource(R.string.ready_no_notifications)
         Readiness.BACKGROUND_OFF -> stringResource(R.string.ready_background_off)
         Readiness.BATTERY_RESTRICTED -> stringResource(R.string.ready_battery_restricted)
+        Readiness.VENDOR_SETUP -> stringResource(R.string.ready_vendor_setup, Vendor.current()?.title.orEmpty())
     }
     Surface(onClick = onClick, shape = RoundedCornerShape(22.dp), color = color.copy(alpha = 0.12f)) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -612,6 +629,10 @@ private fun SettingsDialog(relayStatus: RelayStatus, onManualInvite: () -> Unit,
     val contactsOnly by settings.contactsOnly.collectAsStateWithLifecycle()
     val missedNotices by settings.missedNotices.collectAsStateWithLifecycle()
     val updateCheck by settings.updateCheck.collectAsStateWithLifecycle()
+    val hardBackground by settings.hardBackground.collectAsStateWithLifecycle()
+    var confirmHard by remember { mutableStateOf(false) }
+    var showVendorSetup by remember { mutableStateOf(false) }
+    val vendor = remember { Vendor.current() }
     var checking by remember { mutableStateOf(false) }
     // Перечитывается при каждом открытии диалога и после возврата из системных настроек.
     val unrestricted = isBatteryUnrestricted(context)
@@ -650,6 +671,28 @@ private fun SettingsDialog(relayStatus: RelayStatus, onManualInvite: () -> Unit,
                         Text(stringResource(R.string.battery_button))
                     }
                     Spacer(Modifier.height(8.dp))
+                }
+                if (background && vendor != null) {
+                    FilledTonalButton(onClick = { showVendorSetup = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.vendor_button, vendor.title))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+                if (background) {
+                    SettingRow(
+                        title = stringResource(R.string.setting_hard_background),
+                        description = stringResource(R.string.setting_hard_background_desc),
+                        checked = hardBackground,
+                        onChange = { enable ->
+                            if (enable) {
+                                confirmHard = true
+                            } else {
+                                settings.setHardBackground(false)
+                                ListenService.sync(context)
+                                RelaySignaling.restart(context)
+                            }
+                        }
+                    )
                 }
                 SettingRow(
                     title = stringResource(R.string.setting_contacts_only),
@@ -698,6 +741,28 @@ private fun SettingsDialog(relayStatus: RelayStatus, onManualInvite: () -> Unit,
         confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.done)) } },
         dismissButton = { TextButton(onClick = onHelp) { Text(stringResource(R.string.how_to_use)) } }
     )
+
+    if (confirmHard) {
+        AlertDialog(
+            onDismissRequest = { confirmHard = false },
+            title = { Text(stringResource(R.string.setting_hard_background)) },
+            text = { Text(stringResource(R.string.hard_background_warning)) },
+            confirmButton = {
+                Button(onClick = {
+                    confirmHard = false
+                    settings.setHardBackground(true)
+                    ListenService.sync(context)
+                    // Частота проверки соединения задаётся при подключении к релеям.
+                    RelaySignaling.restart(context)
+                }) { Text(stringResource(R.string.hard_background_enable)) }
+            },
+            dismissButton = { TextButton(onClick = { confirmHard = false }) { Text(stringResource(R.string.cancel)) } }
+        )
+    }
+
+    if (showVendorSetup && vendor != null) {
+        VendorSetupDialog(vendor, onDismiss = { showVendorSetup = false })
+    }
 }
 
 private fun appVersion(context: Context): String = try {

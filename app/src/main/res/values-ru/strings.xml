@@ -264,4 +264,25 @@
     <string name="found_own_title">Это ваш код</string>
     <string name="found_own_text">Отсканируйте код собеседника.</string>
     <string name="found_save">Сохранить</string>
+    <!-- Оболочки производителей и постоянная связь -->
+    <string name="ready_vendor_setup">%1$s может закрывать приложение — разрешите автозапуск</string>
+    <string name="vendor_button">Настроить автозапуск (%1$s)</string>
+    <string name="vendor_title">Настройка для %1$s</string>
+    <string name="vendor_intro">Этот телефон закрывает фоновые приложения сверх обычной экономии батареи Android. Без этих разрешений звонки приходят с задержкой или не приходят.</string>
+    <string name="vendor_steps_xiaomi">Настройки → Приложения → DP Call: включите «Автозапуск»; «Контроль активности» → «Нет ограничений». В недавних приложениях потяните DP Call вниз и закрепите замком.</string>
+    <string name="vendor_steps_huawei">Настройки → Батарея → Запуск приложений → DP Call: выключите «Управлять автоматически» и включите все три переключателя.</string>
+    <string name="vendor_steps_oppo">Настройки → Батарея → DP Call: разрешите работу в фоне и автозапуск. В недавних приложениях закрепите DP Call.</string>
+    <string name="vendor_steps_vivo">Настройки → Батарея → Высокое энергопотребление в фоне: включите для DP Call. i Manager → Диспетчер приложений → Автозапуск: разрешите DP Call.</string>
+    <string name="vendor_steps_samsung">Настройки → Обслуживание устройства → Батарея → Ограничения в фоновом режиме → «Приложения, которые никогда не спят»: добавьте DP Call. Убедитесь, что его нет среди спящих.</string>
+    <string name="vendor_steps_meizu">Безопасность → Разрешения → Управление фоном: разрешите DP Call работать в фоне.</string>
+    <string name="vendor_steps_asus">Mobile Manager → PowerMaster → Диспетчер автозапуска: разрешите DP Call.</string>
+    <string name="vendor_last_resort">Если звонки всё равно не доходят, включите «Постоянную связь» в настройках.</string>
+    <string name="vendor_open_settings">Открыть настройки</string>
+    <string name="vendor_done">Готово</string>
+    <string name="vendor_later">Позже</string>
+    <string name="setting_hard_background">Постоянная связь</string>
+    <string name="setting_hard_background_desc">Для телефонов, которые всё равно закрывают приложение. Держит соединение и в глубоком сне; заметно расходует батарею.</string>
+    <string name="hard_background_warning">Телефон не будет засыпать полностью: приложение не даёт процессору уснуть и проверяет соединение каждые 25 секунд. Расход батареи вырастет на несколько процентов в сутки. Включайте, только если звонки не доходят при остальных настройках.</string>
+    <string name="hard_background_enable">Включить</string>
+    <string name="check_advice_own_turn">Звонки соединятся через общий TURN, но ваш сервер не отвечает: проверьте адрес, логин и пароль в Настройки → Дополнительно.</string>
 </resources>

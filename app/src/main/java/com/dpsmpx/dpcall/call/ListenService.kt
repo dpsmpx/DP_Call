@@ -1,5 +1,7 @@
 package com.dpsmpx.dpcall.call
 
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -7,6 +9,8 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
@@ -29,6 +33,7 @@ import kotlinx.coroutines.launch
 class ListenService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -72,12 +77,54 @@ class ListenService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        applyHardMode()
         return START_STICKY
     }
 
+    /**
+     * Постоянная связь: держим процессор, чтобы проверки соединения с релеями шли по
+     * расписанию и в Doze, и заводим сторожа, который поднимает ожидание звонков,
+     * если оболочка его всё-таки закрыла.
+     */
+    private fun applyHardMode() {
+        if (AppSettings.get(this).hardBackground.value) {
+            val lock = wakeLock ?: (getSystemService(Context.POWER_SERVICE) as PowerManager)
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "dpcall:listen").also {
+                    it.setReferenceCounted(false)
+                    wakeLock = it
+                }
+            // С запасом до следующего срабатывания сторожа, который продлит удержание.
+            lock.acquire(WATCHDOG_MS + 5 * 60_000L)
+            scheduleWatchdog(this)
+        } else {
+            releaseWakeLock()
+            cancelWatchdog(this)
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            wakeLock?.takeIf { it.isHeld }?.release()
+        } catch (e: Exception) {
+            Log.w(TAG, "wake lock release", e)
+        }
+        wakeLock = null
+    }
+
     override fun onDestroy() {
+        releaseWakeLock()
         scope.cancel()
         super.onDestroy()
+    }
+
+    /** Сторож постоянной связи: перезапускает сервис и проверяет соединения с релеями. */
+    class Watchdog : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (!AppSettings.get(context).hardBackground.value || !AppSettings.get(context).backgroundListening.value) return
+            sync(context)
+            RelaySignaling.start(context)
+            RelaySignaling.reconnectNow()
+        }
     }
 
     /** Запуск после перезагрузки телефона и обновления приложения. */
@@ -91,6 +138,33 @@ class ListenService : Service() {
 
     companion object {
         private const val TAG = "ListenService"
+        private const val WATCHDOG_MS = 15 * 60_000L
+
+        private fun watchdogIntent(context: Context): PendingIntent = PendingIntent.getBroadcast(
+            context, 0, Intent(context, Watchdog::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        /** Неточный будильник: срабатывает и в Doze, но не требует разрешения на точные. */
+        private fun scheduleWatchdog(context: Context) {
+            try {
+                (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager).setAndAllowWhileIdle(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    SystemClock.elapsedRealtime() + WATCHDOG_MS,
+                    watchdogIntent(context)
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Cannot schedule watchdog", e)
+            }
+        }
+
+        private fun cancelWatchdog(context: Context) {
+            try {
+                (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(watchdogIntent(context))
+            } catch (e: Exception) {
+                Log.w(TAG, "Cannot cancel watchdog", e)
+            }
+        }
 
         /** Запускает или останавливает сервис в соответствии с настройкой. */
         fun sync(context: Context) {
@@ -100,6 +174,7 @@ class ListenService : Service() {
                 if (AppSettings.get(app).backgroundListening.value) {
                     ContextCompat.startForegroundService(app, intent)
                 } else {
+                    cancelWatchdog(app)
                     app.stopService(intent)
                 }
             } catch (e: Exception) {

@@ -265,4 +265,25 @@
     <string name="found_own_title">This is your code</string>
     <string name="found_own_text">Scan the other person\'s code instead.</string>
     <string name="found_save">Save</string>
+    <!-- Оболочки производителей и постоянная связь -->
+    <string name="ready_vendor_setup">%1$s may close the app — allow autostart</string>
+    <string name="vendor_button">Set up autostart (%1$s)</string>
+    <string name="vendor_title">Setup for %1$s</string>
+    <string name="vendor_intro">This phone closes background apps on top of Android\'s battery saving. Without these permissions calls arrive late or not at all.</string>
+    <string name="vendor_steps_xiaomi">Settings → Apps → DP Call: turn on Autostart; Battery saver → No restrictions. In recent apps, pull DP Call down and lock it.</string>
+    <string name="vendor_steps_huawei">Settings → Battery → App launch → DP Call: turn off \"Manage automatically\" and turn on all three switches.</string>
+    <string name="vendor_steps_oppo">Settings → Battery → DP Call: allow background activity and Auto launch. In recent apps, lock DP Call.</string>
+    <string name="vendor_steps_vivo">Settings → Battery → High background power consumption: turn on for DP Call. i Manager → App manager → Autostart: allow DP Call.</string>
+    <string name="vendor_steps_samsung">Settings → Battery → Background usage limits → Never sleeping apps: add DP Call. Make sure it is not in Sleeping or Deep sleeping apps.</string>
+    <string name="vendor_steps_meizu">Security → Permissions → Background management: allow DP Call to run in the background.</string>
+    <string name="vendor_steps_asus">Mobile Manager → PowerMaster → Auto-start manager: allow DP Call.</string>
+    <string name="vendor_last_resort">If calls still do not get through, turn on \"Always connected\" in Settings.</string>
+    <string name="vendor_open_settings">Open settings</string>
+    <string name="vendor_done">Done</string>
+    <string name="vendor_later">Later</string>
+    <string name="setting_hard_background">Always connected</string>
+    <string name="setting_hard_background_desc">For phones that close the app anyway. Keeps the connection alive in deep sleep; uses noticeably more battery.</string>
+    <string name="hard_background_warning">The phone will not fully sleep: the app keeps the processor awake and checks the connection every 25 seconds. Expect several percent more battery use per day. Turn it on only if calls do not get through with the other settings.</string>
+    <string name="hard_background_enable">Turn on</string>
+    <string name="check_advice_own_turn">Calls should connect through the public TURN, but your own server does not respond: check its address, login and password in Settings → Advanced.</string>
 </resources>

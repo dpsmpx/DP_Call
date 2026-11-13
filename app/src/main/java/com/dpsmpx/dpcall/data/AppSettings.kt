@@ -74,6 +74,28 @@ class AppSettings private constructor(context: Context) {
         get() = prefs.getBoolean(KEY_NOISE_SUPPRESSION, true)
         set(value) = prefs.edit().putBoolean(KEY_NOISE_SUPPRESSION, value).apply()
 
+    private val _hardBackground = MutableStateFlow(prefs.getBoolean(KEY_HARD_BACKGROUND, false))
+    /**
+     * Постоянная связь: процессор не засыпает, соединения проверяются чаще, а сторож
+     * перезапускает ожидание звонков. Для оболочек, которые закрывают приложение
+     * вопреки всем исключениям; заметно расходует батарею.
+     */
+    val hardBackground: StateFlow<Boolean> = _hardBackground.asStateFlow()
+
+    fun setHardBackground(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_HARD_BACKGROUND, enabled).apply()
+        _hardBackground.value = enabled
+    }
+
+    private val _vendorSetupDone = MutableStateFlow(prefs.getBoolean(KEY_VENDOR_SETUP, false))
+    /** Пользователь прошёл настройку автозапуска в оболочке производителя. */
+    val vendorSetupDone: StateFlow<Boolean> = _vendorSetupDone.asStateFlow()
+
+    fun setVendorSetupDone() {
+        prefs.edit().putBoolean(KEY_VENDOR_SETUP, true).apply()
+        _vendorSetupDone.value = true
+    }
+
     fun setBackgroundListening(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_BACKGROUND, enabled).apply()
         _backgroundListening.value = enabled
@@ -189,6 +211,8 @@ class AppSettings private constructor(context: Context) {
         private const val KEY_NOISE_SUPPRESSION = "noise_suppression"
         private const val KEY_ONBOARDING = "onboarding_shown"
         private const val KEY_RELAYS = "relays"
+        private const val KEY_HARD_BACKGROUND = "hard_background"
+        private const val KEY_VENDOR_SETUP = "vendor_setup_done"
         private const val KEY_TURN_URL = "turn_url"
         private const val KEY_TURN_USER = "turn_user"
         private const val KEY_TURN_PASSWORD = "turn_password"

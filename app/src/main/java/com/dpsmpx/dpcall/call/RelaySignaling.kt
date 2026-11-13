@@ -60,6 +60,8 @@ object RelaySignaling {
                     relays = relays,
                     // Свой список релеев пользователь задаёт сознательно — запасные не добавляем.
                     spares = if (relays == RelayPool.DEFAULT_RELAYS) RelayPool.SPARE_RELAYS else emptyList(),
+                    // Постоянная связь: обрыв замечается за ~25 с вместо ~40 с.
+                    pingSec = if (AppSettings.get(app).hardBackground.value) 25 else 40,
                     receiveMissed = AppSettings.get(app).missedNotices.value,
                     onMessage = { from, message -> main.post { CallManager.onRelayMessage(from, message) } },
                     onStatus = { connected, total ->

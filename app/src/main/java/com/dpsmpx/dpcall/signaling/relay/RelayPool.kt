@@ -35,6 +35,8 @@ class RelayPool(
     private val urls: List<String>,
     private val spares: List<String> = emptyList(),
     private val target: Int = TARGET_RELAYS,
+    /** Как часто проверять, живо ли соединение; реже — экономнее, чаще — быстрее замечается обрыв. */
+    pingSec: Long = 40,
     private val inboxTag: String,
     private val kind: Int,
     /** Хранимые события, которые нужно забрать за последние [storedWindowSec] секунд; null — не нужны. */
@@ -45,7 +47,7 @@ class RelayPool(
     private val log: (String) -> Unit = {}
 ) {
     private val client = OkHttpClient.Builder()
-        .pingInterval(40, TimeUnit.SECONDS)
+        .pingInterval(pingSec, TimeUnit.SECONDS)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         .build()

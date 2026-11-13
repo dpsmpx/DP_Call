@@ -81,6 +81,7 @@ fun ConnectionCheckDialog(relayStatus: RelayStatus, path: PathCheck?, onDismiss:
                         !relayStatus.online -> R.string.check_advice_offline
                         path.blocked -> R.string.check_advice_blocked
                         !path.turn -> R.string.check_advice_no_turn
+                        path.ownTurn == false -> R.string.check_advice_own_turn
                         else -> R.string.check_advice_ok
                     }
                     Spacer(Modifier.height(2.dp))

@@ -96,6 +96,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".call.ListenService$Watchdog"
+            android:exported="false" />
+
+        <receiver
             android:name=".call.ListenService$BootReceiver"
             android:exported="true">
             <intent-filter>
