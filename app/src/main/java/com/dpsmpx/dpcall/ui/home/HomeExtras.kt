@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -60,6 +61,7 @@ import com.dpsmpx.dpcall.data.TurnConfig
 import com.dpsmpx.dpcall.signaling.relay.RelayPool
 import com.dpsmpx.dpcall.ui.components.Avatar
 import com.dpsmpx.dpcall.ui.components.shareText
+import com.dpsmpx.dpcall.update.UpdateChecker
 import com.dpsmpx.dpcall.util.CodeValidator
 import com.dpsmpx.dpcall.util.Diagnostics
 import com.google.zxing.BarcodeFormat
@@ -86,10 +88,47 @@ private fun qrBitmap(text: String, size: Int = 720): Bitmap? = try {
 /** QR со своим кодом — чтобы собеседник отсканировал его при встрече. */
 @Composable
 fun QrDialog(code: String, onDismiss: () -> Unit) {
-    val bitmap = remember(code) { qrBitmap(code) }
+    QrCodeDialog(
+        content = code,
+        title = stringResource(R.string.your_code),
+        hint = stringResource(R.string.qr_hint),
+        onDismiss = onDismiss
+    )
+}
+
+/**
+ * Приглашение установить DP Call: QR со ссылкой на скачивание — для того, кто рядом
+ * (камера телефона откроет ссылку), и кнопка отправки ссылки — для всех остальных.
+ */
+@Composable
+fun InviteDialog(onShareLink: () -> Unit, onDismiss: () -> Unit) {
+    QrCodeDialog(
+        content = UpdateChecker.DIRECT_DOWNLOAD,
+        title = stringResource(R.string.invite_title),
+        hint = stringResource(R.string.invite_qr_hint),
+        onDismiss = onDismiss,
+        action = {
+            Button(onClick = onShareLink) {
+                Icon(Icons.Default.Share, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.invite_send_link))
+            }
+        }
+    )
+}
+
+@Composable
+private fun QrCodeDialog(
+    content: String,
+    title: String,
+    hint: String,
+    onDismiss: () -> Unit,
+    action: (@Composable () -> Unit)? = null
+) {
+    val bitmap = remember(content) { qrBitmap(content) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.your_code)) },
+        title = { Text(title) },
         text = {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 if (bitmap != null) {
@@ -104,14 +143,19 @@ fun QrDialog(code: String, onDismiss: () -> Unit) {
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    stringResource(R.string.qr_hint),
+                    hint,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) } }
+        confirmButton = action ?: { TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) } },
+        dismissButton = if (action != null) {
+            { TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) } }
+        } else {
+            null
+        }
     )
 }
 

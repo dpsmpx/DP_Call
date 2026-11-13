@@ -229,4 +229,6 @@
     <string name="invite_empty">Пригласить в DP Call</string>
     <string name="invite_text">Давай созваниваться в DP Call — голосовые звонки без регистрации и номера телефона.\n\nСкачать для Android: %1$s\nО приложении: %2$s</string>
     <string name="share_code_text">Мой код DP Call:\n%1$s\n\nЕщё нет DP Call? Скачать для Android: %2$s\nО приложении: %3$s</string>
+    <string name="invite_qr_hint">Пусть собеседник наведёт камеру телефона на код — откроется скачивание DP Call. Или отправьте ему ссылку.</string>
+    <string name="invite_send_link">Отправить ссылку</string>
 </resources>

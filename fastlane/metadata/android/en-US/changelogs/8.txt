@@ -1,0 +1,2 @@
+* Invite now shows a QR code with the DP Call download link: someone nearby just points their phone camera at it
+* The link can still be sent through any messenger with the Send link button

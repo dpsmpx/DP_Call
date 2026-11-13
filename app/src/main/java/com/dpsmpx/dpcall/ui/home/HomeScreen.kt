@@ -121,6 +121,7 @@ fun HomeScreen(
     var contactToRename by remember { mutableStateOf<Contact?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var showQr by remember { mutableStateOf(false) }
+    var showInvite by remember { mutableStateOf(false) }
     val tab = state.tab
     val callLog by viewModel.callLog.collectAsStateWithLifecycle()
     val scanQr = rememberQrScanner { scanned -> viewModel.onAddCodeChange(scanned) }
@@ -157,7 +158,7 @@ fun HomeScreen(
                 actions = {
                     // Без приложения собеседнику не дозвониться — ссылка на него всегда под рукой.
                     FilledTonalButton(
-                        onClick = { shareAppLink(context) },
+                        onClick = { showInvite = true },
                         contentPadding = PaddingValues(horizontal = 14.dp),
                     ) {
                         Icon(Icons.Default.GroupAdd, null, Modifier.size(18.dp))
@@ -292,7 +293,7 @@ fun HomeScreen(
                         }
                     } else if (state.contacts.isEmpty()) {
                         item(key = "empty") {
-                            EmptyContacts(onAdd = { viewModel.openAddDialog() }, onInvite = { shareAppLink(context) })
+                            EmptyContacts(onAdd = { viewModel.openAddDialog() }, onInvite = { showInvite = true })
                         }
                     } else {
                         items(state.contacts, key = { it.code }) { contact ->
@@ -348,6 +349,16 @@ fun HomeScreen(
 
     if (showQr) {
         QrDialog(code = state.identity?.value.orEmpty(), onDismiss = { showQr = false })
+    }
+
+    if (showInvite) {
+        InviteDialog(
+            onShareLink = {
+                showInvite = false
+                shareAppLink(context)
+            },
+            onDismiss = { showInvite = false }
+        )
     }
 
     if (showSettings) {

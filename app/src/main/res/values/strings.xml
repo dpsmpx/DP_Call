@@ -230,4 +230,6 @@
     <string name="invite_empty">Invite someone to DP Call</string>
     <string name="invite_text">Let\'s talk on DP Call — voice calls without sign-up or a phone number.\n\nDownload for Android: %1$s\nAbout the app: %2$s</string>
     <string name="share_code_text">My DP Call code:\n%1$s\n\nNo DP Call yet? Download for Android: %2$s\nAbout the app: %3$s</string>
+    <string name="invite_qr_hint">Have the other person point their phone camera at the code — the DP Call download opens. Or send them the link.</string>
+    <string name="invite_send_link">Send link</string>
 </resources>
