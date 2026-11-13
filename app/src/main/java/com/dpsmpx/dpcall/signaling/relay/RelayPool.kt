@@ -36,7 +36,7 @@ class RelayPool(
     private val spares: List<String> = emptyList(),
     private val target: Int = TARGET_RELAYS,
     /** Как часто проверять, живо ли соединение; реже — экономнее, чаще — быстрее замечается обрыв. */
-    pingSec: Long = 40,
+    private val pingSec: Long = 40,
     /** SOCKS-прокси (Tor); имена релеев тогда разрешает сам прокси, без утечки DNS. */
     proxy: java.net.Proxy? = null,
     private val inboxTag: String,
@@ -114,6 +114,8 @@ class RelayPool(
     /** Подключает нужные релеи и отключает лишние. Вызывается из потока пула. */
     private fun evaluate() {
         if (!running) return
+        // Ответы на проверки связи тоже идут от сервера и расходуют лимит соединения.
+        links.forEach { if (it.open) it.countReceived(PONG_BYTES * EVALUATE_SEC / pingSec) }
         val now = System.currentTimeMillis()
         val chosen = RelayHealth.choose(urls, spares, target) { url ->
             links.first { it.url == url }.health.isBenched(now)
@@ -122,7 +124,9 @@ class RelayPool(
         links.forEach { link ->
             val want = link.url in chosen
             if (want && !link.active) {
-                log("${link.url}: ${if (link.spare) "spare relay engaged" else "back in rotation"}")
+                if (link.spare || link.everActive) {
+                    log("${link.url}: ${if (link.spare) "spare relay engaged" else "back in rotation"}")
+                }
                 link.activate()
                 changed = true
             } else if (!want && link.active) {
@@ -160,6 +164,10 @@ class RelayPool(
                 }
             }
         }
+        if (type == "EOSE") {
+            // Хранимое до этого момента получено: при переподключении спросим только новое.
+            links.firstOrNull { it.url == url }?.storedSince = System.currentTimeMillis() / 1000 - STORED_OVERLAP_SEC
+        }
         if (type != "EVENT") {
             // OK с отказом, NOTICE, CLOSED, AUTH — полезно видеть в журнале.
             if (type != "EOSE" && !(type == "OK" && message.getOrNull(2)?.toString() == "true")) {
@@ -180,6 +188,13 @@ class RelayPool(
     private inner class Link(val url: String, val spare: Boolean) : WebSocketListener() {
         @Volatile
         private var socket: WebSocket? = null
+        /** Новое соединение, которое заменит [socket], как только откроется. */
+        private var next: WebSocket? = null
+        /** Сколько байт сервер прислал по текущему соединению (оценка, с TLS). */
+        private var received = 0L
+        private var lastRotation = 0L
+        /** С какого момента запрашивать хранимые события (после первого EOSE). */
+        var storedSince: Long? = null
         private var connecting = false
         private var retry: ScheduledFuture<*>? = null
         private var stable: ScheduledFuture<*>? = null
@@ -197,7 +212,12 @@ class RelayPool(
         var active = false
             private set
 
+        /** Уже работал раньше — значит, возвращается после отстранения. */
+        var everActive = false
+            private set
+
         fun activate() {
+            everActive = true
             active = true
             connect(resetBackoff = true)
         }
@@ -221,6 +241,8 @@ class RelayPool(
             if (resetBackoff) backoffSec = 2L
             retry?.cancel(false)
             retry = null
+            next?.cancel()
+            next = null
             socket?.cancel()
             open = false
             connecting = true
@@ -240,6 +262,8 @@ class RelayPool(
             retry = null
             stable?.cancel(false)
             stable = null
+            next?.cancel()
+            next = null
             pendingAcks.values.forEach { it.cancel(false) }
             pendingAcks.clear()
             socket?.close(1000, null)
@@ -248,6 +272,48 @@ class RelayPool(
         }
 
         fun send(message: String): Boolean = open && (socket?.send(message) ?: false)
+
+        /**
+         * В России соединения с Cloudflare, Hetzner, OVH и другими крупными хостингами
+         * замирают, когда сервер прислал ~14–25 КБ: данные просто перестают приходить.
+         * Поэтому заранее, на [ROTATE_BYTES], открываем новое соединение и закрываем старое,
+         * только когда новое готово, — вызов не теряется.
+         */
+        fun countReceived(bytes: Long) {
+            received += bytes
+            val now = System.currentTimeMillis()
+            if (received < ROTATE_BYTES || next != null || !open || now - lastRotation < MIN_ROTATION_MS) return
+            lastRotation = now
+            log("$url: rotating connection after ~${received / 1000} KB")
+            next = try {
+                client.newWebSocket(Request.Builder().url(url).build(), this)
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        private fun subscribe(webSocket: WebSocket) {
+            val now = System.currentTimeMillis() / 1000
+            val request = buildJsonArray {
+                add(JsonPrimitive("REQ"))
+                add(JsonPrimitive("dpcall"))
+                add(buildJsonObject {
+                    putJsonArray("kinds") { add(JsonPrimitive(kind)) }
+                    putJsonArray("#p") { add(JsonPrimitive(inboxTag)) }
+                    put("since", now - 60)
+                })
+                if (storedKind != null) {
+                    // То, что пришло, пока нас не было на связи; после первого раза — только новое.
+                    add(buildJsonObject {
+                        putJsonArray("kinds") { add(JsonPrimitive(storedKind)) }
+                        putJsonArray("#p") { add(JsonPrimitive(inboxTag)) }
+                        put("since", storedSince ?: (now - storedWindowSec))
+                        put("limit", STORED_LIMIT)
+                    })
+                }
+            }
+            webSocket.send(request.toString())
+        }
 
         private fun scheduleRetry() {
             if (!running || !active || retry != null) return
@@ -261,39 +327,36 @@ class RelayPool(
 
         override fun onOpen(webSocket: WebSocket, response: Response) {
             executor.execute {
+                if (webSocket === next) {
+                    // Замена готова: подписываемся на новом соединении, старое закрываем чуть
+                    // позже, чтобы не потерять то, что уже в пути.
+                    val old = socket
+                    socket = webSocket
+                    next = null
+                    received = HANDSHAKE_BYTES
+                    subscribe(webSocket)
+                    executor.schedule({ old?.close(1000, null) }, 2, TimeUnit.SECONDS)
+                    return@execute
+                }
                 if (webSocket !== socket) return@execute
                 connecting = false
                 open = true
                 backoffSec = 2L
+                received = HANDSHAKE_BYTES
                 // Обрыв в первые минуты после подключения тоже считается неудачей.
                 stable?.cancel(false)
                 stable = executor.schedule({ if (open) health.onStable() }, STABLE_SEC, TimeUnit.SECONDS)
-                val now = System.currentTimeMillis() / 1000
-                val request = buildJsonArray {
-                    add(JsonPrimitive("REQ"))
-                    add(JsonPrimitive("dpcall"))
-                    add(buildJsonObject {
-                        putJsonArray("kinds") { add(JsonPrimitive(kind)) }
-                        putJsonArray("#p") { add(JsonPrimitive(inboxTag)) }
-                        put("since", now - 60)
-                    })
-                    if (storedKind != null) {
-                        // То, что пришло, пока нас не было на связи.
-                        add(buildJsonObject {
-                            putJsonArray("kinds") { add(JsonPrimitive(storedKind)) }
-                            putJsonArray("#p") { add(JsonPrimitive(inboxTag)) }
-                            put("since", now - storedWindowSec)
-                            put("limit", STORED_LIMIT)
-                        })
-                    }
-                }
-                webSocket.send(request.toString())
+                subscribe(webSocket)
                 notifyStatus()
             }
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            executor.execute { if (webSocket === socket) handleMessage(url, text) }
+            executor.execute {
+                if (webSocket !== socket) return@execute
+                handleMessage(url, text)
+                countReceived((text.length + FRAME_BYTES).toLong())
+            }
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = onLost(webSocket)
@@ -305,6 +368,11 @@ class RelayPool(
 
         private fun onLost(webSocket: WebSocket) {
             executor.execute {
+                if (webSocket === next) {
+                    // Замена не удалась — работаем на прежнем соединении, пока оно живо.
+                    next = null
+                    return@execute
+                }
                 if (webSocket !== socket) return@execute
                 connecting = false
                 socket = null
@@ -336,6 +404,18 @@ class RelayPool(
         private const val ACK_TIMEOUT_SEC = 8L
         private const val STABLE_SEC = 120L
         private const val MAX_PENDING_ACKS = 64
+        /**
+         * Порог переподключения. Одно приглашение приходит целиком (~5 КБ), поэтому порог
+         * с запасом на сообщение до замирания на ~14–25 КБ.
+         */
+        const val ROTATE_BYTES = 9_000L
+        /** TLS-рукопожатие: сертификаты сервера тоже идут в счёт лимита. */
+        private const val HANDSHAKE_BYTES = 5_000L
+        /** Заголовки кадра WebSocket и записи TLS на каждое сообщение. */
+        private const val FRAME_BYTES = 40
+        private const val PONG_BYTES = 35L
+        private const val MIN_ROTATION_MS = 1_000L
+        private const val STORED_OVERLAP_SEC = 120L
 
         /**
          * Публичные релеи без регистрации, независимые операторы.
@@ -345,18 +425,23 @@ class RelayPool(
          */
         val DEFAULT_RELAYS = listOf(
             "wss://relay.snort.social",
-            "wss://nostr.oxtr.dev",
-            "wss://relay.nostr.net",
-            "wss://nostr.sathoarder.com"
+            "wss://nostr.sathoarder.com",
+            "wss://offchain.pub",
+            "wss://relay.nostr.net"
         )
 
         /**
          * Запасные релеи: подключаются, только когда основных в работе меньше
          * [TARGET_RELAYS]. Проверены тем же LiveRelayTest.
+         *
+         * Основные подобраны так, чтобы большинство было вне Cloudflare, Hetzner, OVH и
+         * других крупных хостингов: из России соединения с ними замирают после ~16 КБ.
+         * Списки пересекаются с прежним (snort, sathoarder, nostr.net), поэтому старые
+         * версии приложения по-прежнему дозваниваются до новых и наоборот.
          */
         val SPARE_RELAYS = listOf(
-            "wss://offchain.pub",
-            "wss://relay.primal.net"
+            "wss://relay.primal.net",
+            "wss://nostr.oxtr.dev"
         )
     }
 }

@@ -96,6 +96,42 @@ class LiveRelayTest {
         assertTrue("no OK from $failed", failed.isEmpty())
     }
 
+    /**
+     * Из России соединение с релеем замирает, когда сервер прислал ~16 КБ, поэтому пул
+     * заранее открывает новое. Здесь через одно соединение идёт ~40 КБ: все сообщения
+     * должны дойти, а соединение — смениться.
+     */
+    @Test
+    fun manyMessagesSurviveConnectionRotation() {
+        assumeTrue(System.getenv("DPCALL_LIVE_RELAYS") == "1")
+        val relay = listOf("wss://relay.snort.social")
+        val alice = IdentityGenerator.generate()
+        val bob = IdentityGenerator.generate()
+        val got = java.util.Collections.synchronizedSet(HashSet<String>())
+        val rotations = java.util.concurrent.atomic.AtomicInteger()
+        val online = CountDownLatch(2)
+        val bobM = RelayMessenger(bob, relay, onMessage = { _, m -> got += m.id },
+            onStatus = { c, _ -> if (c > 0) online.countDown() },
+            log = { if ("rotating" in it) rotations.incrementAndGet(); println("LIVE   bob $it") })
+        val aliceM = RelayMessenger(alice, relay, onMessage = { _, _ -> }, onStatus = { c, _ -> if (c > 0) online.countDown() })
+        try {
+            bobM.start(); aliceM.start()
+            assertTrue(online.await(20, TimeUnit.SECONDS))
+            Thread.sleep(1500)
+            repeat(8) { n ->
+                aliceM.send(bob.code, CallMessage(CallMessage.OFFER, "call-$n", "DPCALL1.O." + "A".repeat(3500)))
+                Thread.sleep(1500)
+            }
+            val deadline = System.currentTimeMillis() + 10_000
+            while (got.size < 8 && System.currentTimeMillis() < deadline) Thread.sleep(200)
+            println("LIVE rotation -> received ${got.size}/8, rotations=${rotations.get()}")
+            assertTrue("received ${got.size}/8", got.size == 8)
+            assertTrue("no rotation happened", rotations.get() >= 1)
+        } finally {
+            bobM.stop(); aliceM.stop()
+        }
+    }
+
     @Test
     fun poolDeliversThroughAllRelaysAtOnce() {
         assumeTrue(System.getenv("DPCALL_LIVE_RELAYS") == "1")

@@ -5,7 +5,13 @@ import org.webrtc.PeerConnection
 
 object IceServerConfig {
 
+    /**
+     * Первым — STUN Яндекса: в России публичные STUN режут по адресу назначения (серверы
+     * Google не отвечают с лета 2025 года), а этот, по наблюдениям, доступен. Остальные —
+     * запасные для других стран.
+     */
     private val STUN_SERVERS = listOf(
+        "stun:stun.rtc.yandex.net:3478",
         "stun:stun.l.google.com:19302",
         "stun:stun1.l.google.com:19302",
         "stun:stun.cloudflare.com:3478"
