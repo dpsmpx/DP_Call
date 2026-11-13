@@ -2,6 +2,8 @@ package com.dpsmpx.dpcall
 
 import android.app.Application
 import android.content.Context
+import android.os.PowerManager
+import org.robolectric.Shadows.shadowOf
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -46,7 +48,7 @@ import java.io.File
 import java.util.Calendar
 
 /**
- * Снимает скриншоты для страницы приложения в каталоге (F-Droid) — настоящие экраны
+ * Снимает скриншоты для страницы приложения (описание выпуска, README) — настоящие экраны
  * приложения с демонстрационными данными, на JVM, без эмулятора.
  *
  *     ./gradlew testDebugUnitTest -Pscreenshots
@@ -104,6 +106,9 @@ class StoreScreenshotsTest {
             log.reversed().forEach { logRepo.add(it) }
         }
         AppSettings.get(context).setOnboardingShown()
+        // Плашка готовности — зелёная: ограничение батареи снято, как у настроенного приложения.
+        shadowOf(context.getSystemService(PowerManager::class.java))
+            .setIgnoringBatteryOptimizations(context.packageName, true)
 
         // Индикатор связи: как при работающем приложении.
         val status = RelaySignaling::class.java.getDeclaredField("_status").apply { isAccessible = true }

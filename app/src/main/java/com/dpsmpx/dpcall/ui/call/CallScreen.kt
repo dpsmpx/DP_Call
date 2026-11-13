@@ -179,10 +179,10 @@ fun CallScreen(state: CallUiState, onAccept: () -> Unit, onMinimize: () -> Unit)
                         ManualFallback(
                             automatic = state.viaRelay && !state.peerUnreachable,
                             label = stringResource(R.string.send_invite_manually),
-                            hint = if (state.peerUnreachable) {
-                                stringResource(R.string.peer_offline_hint)
-                            } else {
-                                null
+                            hint = when {
+                                state.peerUnreachable -> stringResource(R.string.peer_offline_hint)
+                                state.slowToReach -> stringResource(R.string.slow_to_reach_hint)
+                                else -> null
                             }
                         ) { OfferExchange(signal) }
                     }

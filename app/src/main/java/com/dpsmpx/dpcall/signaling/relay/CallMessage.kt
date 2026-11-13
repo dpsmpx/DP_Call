@@ -34,5 +34,10 @@ data class CallMessage(
         /** Новый Offer / Answer при пересогласовании. */
         const val RE_OFFER = "reoffer"
         const val RE_ANSWER = "reanswer"
+        /**
+         * Отметка «вам звонили»: вызов не дошёл, потому что адресат был не в сети.
+         * В отличие от остальных сообщений хранится на релеях (см. NostrEvent.KIND_MISSED_CALL).
+         */
+        const val MISSED = "missed"
     }
 }

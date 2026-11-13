@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.dpsmpx.dpcall.domain.Contact
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -16,91 +17,61 @@ private val Context.contactsDataStore: DataStore<Preferences> by preferencesData
     name = "contacts_prefs"
 )
 
+/** Контакт с таким кодом уже существует. */
+class DuplicateContactException : IllegalStateException("Duplicate contact")
+
 /**
  * Локальное хранилище контактов.
  * Список сериализуется в JSON и сохраняется в DataStore.
  */
-/** Контакт с таким кодом уже существует. */
-class DuplicateContactException : IllegalStateException("Duplicate contact")
-
 class ContactsRepository(private val context: Context) {
 
     private val keyContacts = stringPreferencesKey("contacts_list")
     private val json = Json { ignoreUnknownKeys = true }
 
     val contactsFlow: Flow<List<Contact>> = context.contactsDataStore.data.map { prefs ->
-        val raw = prefs[keyContacts] ?: return@map emptyList()
         try {
-            json.decodeFromString<List<Contact>>(raw)
+            decode(prefs[keyContacts])
         } catch (e: Exception) {
             emptyList()
         }
     }
 
-    suspend fun add(contact: Contact): Result<Unit> {
-        return try {
-            context.contactsDataStore.edit { prefs ->
-                val current = prefs[keyContacts]?.let {
-                    try {
-                        json.decodeFromString<List<Contact>>(it)
-                    } catch (_: Exception) {
-                        emptyList()
-                    }
-                } ?: emptyList()
+    /** @throws Exception если сохранённый список не читается */
+    private fun decode(raw: String?): List<Contact> =
+        raw?.let { json.decodeFromString<List<Contact>>(it) } ?: emptyList()
 
-                if (current.any { it.code.equals(contact.code, ignoreCase = true) }) {
-                    throw DuplicateContactException()
-                }
-
-                val updated = current + contact
-                prefs[keyContacts] = json.encodeToString(updated)
-            }
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
+    /**
+     * Меняет список. Если сохранённые данные не читаются, правка отменяется:
+     * иначе одна запись затёрла бы все контакты, которые ещё можно спасти.
+     */
+    private suspend fun update(transform: (List<Contact>) -> List<Contact>): Result<Unit> = try {
+        context.contactsDataStore.edit { prefs ->
+            prefs[keyContacts] = json.encodeToString(transform(decode(prefs[keyContacts])))
         }
+        Result.success(Unit)
+    } catch (e: Exception) {
+        Result.failure(e)
     }
 
-    suspend fun remove(code: String): Result<Unit> {
-        return try {
-            context.contactsDataStore.edit { prefs ->
-                val current = prefs[keyContacts]?.let {
-                    try {
-                        json.decodeFromString<List<Contact>>(it)
-                    } catch (_: Exception) {
-                        emptyList()
-                    }
-                } ?: emptyList()
+    suspend fun getAll(): List<Contact> = contactsFlow.first()
 
-                val updated = current.filterNot { it.code.equals(code, ignoreCase = true) }
-                prefs[keyContacts] = json.encodeToString(updated)
-            }
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+    suspend fun add(contact: Contact): Result<Unit> = update { current ->
+        if (current.any { it.code.equals(contact.code, ignoreCase = true) }) throw DuplicateContactException()
+        current + contact
     }
 
-    suspend fun updateName(code: String, newName: String): Result<Unit> {
-        return try {
-            context.contactsDataStore.edit { prefs ->
-                val current = prefs[keyContacts]?.let {
-                    try {
-                        json.decodeFromString<List<Contact>>(it)
-                    } catch (_: Exception) {
-                        emptyList()
-                    }
-                } ?: emptyList()
+    /** Добавляет контакты из резервной копии; уже существующие коды не трогает. */
+    suspend fun merge(contacts: List<Contact>): Result<Unit> = update { current ->
+        val known = current.mapTo(HashSet()) { it.code.uppercase() }
+        current + contacts.filter { known.add(it.code.uppercase()) }
+    }
 
-                val updated = current.map {
-                    if (it.code.equals(code, ignoreCase = true)) it.copy(name = newName)
-                    else it
-                }
-                prefs[keyContacts] = json.encodeToString(updated)
-            }
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+    suspend fun remove(code: String): Result<Unit> = update { current ->
+        current.filterNot { it.code.equals(code, ignoreCase = true) }
+    }
+
+    suspend fun updateName(code: String, newName: String): Result<Unit> = update { current ->
+        current.map { if (it.code.equals(code, ignoreCase = true)) it.copy(name = newName) else it }
     }
 }

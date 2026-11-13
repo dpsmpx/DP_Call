@@ -75,4 +75,57 @@ class LiveRelayTest {
         println("LIVE pool -> ${ms?.let { "delivered in $it ms" } ?: "FAILED"}")
         assertTrue(ms != null)
     }
+
+    /**
+     * Отметка о пропущенном: отправлена, пока адресата нет на связи, и получена им
+     * при подключении — то есть релей её сохранил.
+     */
+    private fun leaveMissedNote(relays: List<String>): Boolean {
+        val alice = IdentityGenerator.generate()
+        val bob = IdentityGenerator.generate()
+        val aliceOnline = CountDownLatch(1)
+        val aliceMessenger = RelayMessenger(alice, relays, onMessage = { _, _ -> },
+            onStatus = { connected, _ -> if (connected > 0) aliceOnline.countDown() }, log = { println("LIVE   alice " + it) })
+        try {
+            aliceMessenger.start()
+            if (!aliceOnline.await(15, TimeUnit.SECONDS)) return false
+            if (aliceMessenger.send(bob.code, CallMessage(CallMessage.MISSED, "call-missed")) == 0) return false
+            Thread.sleep(2000) // событие должно успеть сохраниться
+        } finally {
+            aliceMessenger.stop()
+        }
+
+        val received = CountDownLatch(1)
+        var from: String? = null
+        val bobMessenger = RelayMessenger(bob, relays, receiveMissed = true, onMessage = { code, message ->
+            if (message.t == CallMessage.MISSED && message.id == "call-missed") {
+                from = code
+                received.countDown()
+            }
+        }, log = { println("LIVE   bob " + it) })
+        try {
+            bobMessenger.start()
+            if (!received.await(15, TimeUnit.SECONDS)) return false
+            check(from == alice.code) { "sender mismatch" }
+            return true
+        } finally {
+            bobMessenger.stop()
+        }
+    }
+
+    @Test
+    fun defaultRelaysKeepMissedCallNotes() {
+        assumeTrue(System.getenv("DPCALL_LIVE_RELAYS") == "1")
+        val results = RelayPool.DEFAULT_RELAYS.associateWith { relay ->
+            try {
+                leaveMissedNote(listOf(relay))
+            } catch (e: Throwable) {
+                println("LIVE $relay error: $e")
+                false
+            }
+        }
+        results.forEach { (relay, ok) -> println("LIVE $relay -> missed note ${if (ok) "kept" else "NOT KEPT"}") }
+        // Достаточно одного общего релея, который хранит отметку; требуем запас.
+        assertTrue("only ${results.count { it.value }} relays keep missed call notes", results.count { it.value } >= 2)
+    }
 }

@@ -48,6 +48,22 @@ call: there is a grace period for late candidates.
 `reject`, `busy`, `cancel` and `bye` cover the other outcomes. If B is unreachable, A can still
 send the DPCALL1 string manually (share sheet, clipboard pickup or paste).
 
+If A never receives `ringing`, it leaves a `missed` note: the only message the relays store
+(kind 4245, expires after 48 hours). B fetches such notes on every connection, drops the ones
+it has already seen (call ids persisted in settings) and shows a missed call.
+
+## Reachability, updates, backup
+
+- The home screen banner is green only when a call will actually get through: relays
+  connected, notifications allowed, background listening on, battery optimization lifted.
+- `UpdateChecker` asks the GitHub Releases API for the latest release at most once a day and
+  shows a banner; the browser downloads the APK and the system installs it. The app has no
+  install permission and downloads nothing itself.
+- `BackupCodec` (Android-free) encrypts the secret key and the contacts with a password:
+  PBKDF2-HMAC-SHA256 (600 000 iterations) and AES-256-GCM. `BackupManager` writes the file
+  through the system file picker and restores it, replacing the identity and restarting the
+  relay connections.
+
 ## Background and system integration
 
 - `CallService` — foreground service (`phoneCall|microphone`), keeps the call alive when the app
@@ -71,7 +87,8 @@ seconds. If the connection is not back within 30 seconds the call ends.
 
 - Relay messages are authenticated by the inner envelope layer; manually exchanged DPCALL1
   strings must carry a valid Schnorr signature of the sender's key (`SignalCodec`).
-- Only the app's own notification can ask `MainActivity` to answer a call (per-process token).
+- Only the app's own notification can ask `MainActivity` to answer a call (per-process token)
+  or to call back from a missed-call notification (token stored in settings).
 - Signal size, decompressed size and the number of ICE candidates are bounded.
 
 See [SECURITY.md](SECURITY.md) for the threat model and known limitations.
@@ -79,7 +96,8 @@ See [SECURITY.md](SECURITY.md) for the threat model and known limitations.
 ## Local data
 
 DataStore: identity (secret wrapped by Android Keystore), contacts, call log (last 100).
-SharedPreferences: settings (relays, custom TURN, toggles). Nothing is backed up.
+SharedPreferences: settings (relays, custom TURN, toggles, seen call ids). Nothing is backed
+up by the system; the user can export a password-protected backup file.
 Crashes are written to a local file; the user can share a report manually (`Diagnostics`).
 
 ## Localization
@@ -108,4 +126,4 @@ All UI text lives in `res/values/strings.xml` (English, default) and `res/values
 - Android only
 - Voice only
 - Open source (MIT)
-- Distribution: GitHub Releases + F-Droid
+- Distribution: GitHub Releases; the app announces new versions itself

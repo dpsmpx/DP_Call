@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.widget.Toast
 import com.dpsmpx.dpcall.signaling.SignalCodec
 import com.dpsmpx.dpcall.ui.MainActivity
+import com.dpsmpx.dpcall.util.CodeValidator
 
 /**
  * Невидимая точка входа для «Поделиться → DP Call» и выделения текста.
@@ -14,6 +15,7 @@ import com.dpsmpx.dpcall.ui.MainActivity
  * Получив приглашение (Offer), запускает входящий звонок: пользователь остаётся
  * в мессенджере и видит стандартное всплывающее уведомление «Принять / Отклонить».
  * Получив ответ (Answer) на наш звонок — применяет его и открывает экран звонка.
+ * Получив код собеседника — открывает «Новый контакт» с уже вставленным кодом.
  */
 class SignalReceiverActivity : Activity() {
 
@@ -27,8 +29,21 @@ class SignalReceiverActivity : Activity() {
             else -> null
         }?.toString().orEmpty()
 
+        // Сначала приглашение / ответ; если их нет — возможно, прислали код контакта.
+        val contactCode = if (text.length <= SignalCodec.MAX_SIGNAL_CHARS * 2 && SignalCodec.extract(text) == null) {
+            CodeValidator.extract(text)
+        } else {
+            null
+        }
         if (text.isBlank() || text.length > SignalCodec.MAX_SIGNAL_CHARS * 2) {
             toast(getString(R.string.share_no_code))
+        } else if (contactCode != null) {
+            startActivity(
+                Intent(this, MainActivity::class.java)
+                    .setAction(MainActivity.ACTION_ADD_CONTACT)
+                    .putExtra(MainActivity.EXTRA_CODE, contactCode)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            )
         } else {
             when (val result = CallManager.handleSignal(text)) {
                 SignalResult.Ringing -> {

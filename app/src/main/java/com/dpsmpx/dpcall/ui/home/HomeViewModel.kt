@@ -3,6 +3,7 @@ package com.dpsmpx.dpcall.ui.home
 import com.dpsmpx.dpcall.R
 import android.app.Application
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
@@ -14,6 +15,7 @@ import com.dpsmpx.dpcall.data.DuplicateContactException
 import com.dpsmpx.dpcall.data.IdentityRepository
 import com.dpsmpx.dpcall.domain.Contact
 import com.dpsmpx.dpcall.domain.Identity
+import com.dpsmpx.dpcall.signaling.SignalCodec
 import com.dpsmpx.dpcall.util.CodeValidator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,7 +39,9 @@ data class HomeUiState(
     val isAdding: Boolean = false,
     val showIncomingDialog: Boolean = false,
     val incomingOfferInput: String = "",
-    val incomingError: String? = null
+    val incomingError: String? = null,
+    /** 0 — контакты, 1 — журнал. */
+    val tab: Int = 0
 )
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
@@ -54,6 +58,13 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     fun clearCallLog() {
         viewModelScope.launch { callLogRepo.clear() }
     }
+
+    fun selectTab(tab: Int) {
+        _uiState.update { it.copy(tab = tab) }
+    }
+
+    /** Пропущенные из уведомления: открываем сразу журнал. */
+    fun showCallLog() = selectTab(1)
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -91,9 +102,34 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun openAddDialog() {
+    /**
+     * @param code код, который уже известен (из «Поделиться», журнала, QR). Если его нет,
+     *   берём код из буфера обмена: чаще всего его только что скопировали в мессенджере.
+     */
+    fun openAddDialog(code: String? = null) {
+        val prefill = code?.let(CodeValidator::extract) ?: clipboardText()?.let(CodeValidator::extract)?.takeIf(::isNewCode)
         _uiState.update {
-            it.copy(showAddDialog = true, addCodeInput = "", addNameInput = "", addError = null)
+            it.copy(showAddDialog = true, addCodeInput = prefill.orEmpty(), addNameInput = "", addError = null)
+        }
+    }
+
+    private fun isNewCode(code: String): Boolean {
+        val state = _uiState.value
+        return code != state.identity?.value && state.contacts.none { it.code.equals(code, ignoreCase = true) }
+    }
+
+    private fun clipboardText(): String? {
+        return try {
+            val clipboard = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            // Описание читается без системного сообщения «вставлено из буфера»; сам текст — только если он есть.
+            val hasText = clipboard.primaryClipDescription?.let {
+                it.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN) || it.hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML)
+            } ?: false
+            if (!hasText) return null
+            clipboard.primaryClip?.getItemAt(0)?.coerceToText(getApplication())?.toString()
+                ?.takeIf { it.length <= MAX_CLIP_CHARS }?.trim()
+        } catch (e: Exception) {
+            null
         }
     }
 
@@ -101,8 +137,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(showAddDialog = false, addError = null, isAdding = false) }
     }
 
+    /** Вставленное сообщение целиком («Мой код DP Call: …») сводится к самому коду. */
     fun onAddCodeChange(value: String) {
-        _uiState.update { it.copy(addCodeInput = value, addError = null) }
+        val code = if (value.length > CODE_LENGTH) CodeValidator.extract(value) ?: value else value
+        _uiState.update { it.copy(addCodeInput = code, addError = null) }
     }
 
     fun onAddNameChange(value: String) {
@@ -110,20 +148,12 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun pasteCodeFromClipboard() {
-        val clipboard = getApplication<Application>()
-            .getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val text = clipboard.primaryClip
-            ?.getItemAt(0)
-            ?.coerceToText(getApplication())
-            ?.toString()
-            ?.trim()
-            ?: return
-        _uiState.update { it.copy(addCodeInput = text, addError = null) }
+        clipboardText()?.let(::onAddCodeChange)
     }
 
     fun confirmAddContact() {
         val state = _uiState.value
-        val code = CodeValidator.normalize(state.addCodeInput)
+        val code = CodeValidator.extract(state.addCodeInput) ?: CodeValidator.normalize(state.addCodeInput)
         val name = state.addNameInput.trim()
 
         when {
@@ -194,14 +224,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun pasteIncomingOffer() {
-        val clipboard = getApplication<Application>()
-            .getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val text = clipboard.primaryClip
-            ?.getItemAt(0)
-            ?.coerceToText(getApplication())
-            ?.toString()
-            ?.trim()
-            ?: return
+        val text = clipboardText() ?: return
         _uiState.update { it.copy(incomingOfferInput = text, incomingError = null) }
     }
 
@@ -213,5 +236,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         val name = newName.trim()
         if (name.isBlank()) return
         viewModelScope.launch { contactsRepo.updateName(code, name) }
+    }
+
+    private companion object {
+        const val CODE_LENGTH = 52
+        /** Всё, что длиннее самого большого приглашения, в поля не вставляем. */
+        const val MAX_CLIP_CHARS = SignalCodec.MAX_SIGNAL_CHARS * 2
     }
 }

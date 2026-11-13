@@ -8,12 +8,15 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import com.dpsmpx.dpcall.R
+import com.dpsmpx.dpcall.data.AppSettings
+import com.dpsmpx.dpcall.util.CodeValidator
 import com.dpsmpx.dpcall.ui.MainActivity
 import com.dpsmpx.dpcall.webrtc.CallState
 
@@ -22,7 +25,7 @@ object CallNotifications {
     private const val TAG = "CallNotifications"
 
     const val CALL_NOTIFICATION_ID = 1001
-    private const val MISSED_NOTIFICATION_ID = 1002
+    const val MISSED_NOTIFICATION_ID = 1002
     const val LISTEN_NOTIFICATION_ID = 1003
 
     private const val CHANNEL_INCOMING = "incoming_calls"
@@ -184,21 +187,58 @@ object CallNotifications {
         NotificationManagerCompat.from(context).cancel(CALL_NOTIFICATION_ID)
     }
 
-    fun showMissedCall(context: Context, name: String) {
+    /**
+     * Уведомление о пропущенном звонке: нажатие открывает журнал, кнопка — перезванивает.
+     * У каждого звонившего своё уведомление (тег — его код).
+     */
+    fun showMissedCall(context: Context, name: String, code: String, at: Long = System.currentTimeMillis()) {
         if (!canPostNotifications(context)) return
-        val notification = NotificationCompat.Builder(context, CHANNEL_MISSED)
+        val builder = NotificationCompat.Builder(context, CHANNEL_MISSED)
             .setSmallIcon(R.drawable.ic_stat_call)
             .setContentTitle(context.getString(R.string.missed_call))
             .setContentText(name)
             .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
+            .setWhen(at)
+            .setShowWhen(true)
             .setAutoCancel(true)
-            .setContentIntent(activityIntent(context, 3, answer = false))
-            .build()
+            .setContentIntent(missedIntent(context, MainActivity.ACTION_SHOW_LOG, name, code))
+        if (CodeValidator.isValid(code)) {
+            builder.addAction(
+                0, context.getString(R.string.call_back),
+                missedIntent(context, MainActivity.ACTION_CALL_BACK, name, code)
+            )
+        }
         try {
-            NotificationManagerCompat.from(context).notify(MISSED_NOTIFICATION_ID, notification)
+            NotificationManagerCompat.from(context).notify(code, MISSED_NOTIFICATION_ID, builder.build())
         } catch (e: SecurityException) {
             Log.w(TAG, "Missed call notification not allowed", e)
         }
+    }
+
+    /** Снимает уведомления о пропущенных: пользователь уже видит их в журнале. */
+    fun clearMissedCalls(context: Context) {
+        try {
+            val nm = context.getSystemService(NotificationManager::class.java)
+            nm.activeNotifications.filter { it.id == MISSED_NOTIFICATION_ID }.forEach { nm.cancel(it.tag, it.id) }
+        } catch (e: Exception) {
+            Log.w(TAG, "Cannot clear missed call notifications", e)
+        }
+    }
+
+    private fun missedIntent(context: Context, action: String, name: String, code: String): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            this.action = action
+            // Данные отличают намерения разных звонивших: дополнительные поля при сравнении не учитываются.
+            data = Uri.parse("dpcall:missed/$code")
+            putExtra(MainActivity.EXTRA_CODE, code)
+            putExtra(MainActivity.EXTRA_NAME, name)
+            // «Перезвонить» начинает звонок — такое действие принимаем только от самих себя.
+            putExtra(MainActivity.EXTRA_INTENT_TOKEN, AppSettings.get(context).intentToken)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        return PendingIntent.getActivity(
+            context, action.hashCode(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 
     /** Открывает приложение (например, чтобы запросить доступ к микрофону при ответе с гарнитуры). */

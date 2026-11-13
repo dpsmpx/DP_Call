@@ -13,8 +13,8 @@ android {
         applicationId = "com.dpsmpx.dpcall"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.1.1"
+        versionCode = 6
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -52,7 +52,7 @@ android {
                 abiFilters += listOf("arm64-v8a", "armeabi-v7a")
             }
             // Сведения о коммите в APK зависят от способа получения исходников и мешают
-            // воспроизводимой сборке (F-Droid сверяет свой APK с опубликованным).
+            // воспроизводимой сборке (APK можно сверить со сборкой из исходников).
             vcsInfo.include = false
             // Без релизного ключа сборка подписывается общим тестовым ключом из репозитория.
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
@@ -142,7 +142,7 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("fr.acinq.secp256k1:secp256k1-kmp-jni-jvm:0.16.0")
-    // Съёмка скриншотов для каталога на JVM, без эмулятора (см. docs/FDROID.md)
+    // Съёмка скриншотов для страницы приложения на JVM, без эмулятора
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("io.github.takahirom.roborazzi:roborazzi:1.43.1")
     testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.43.1")

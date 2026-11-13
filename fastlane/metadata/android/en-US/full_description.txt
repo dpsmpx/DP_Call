@@ -16,6 +16,9 @@ The call request travels end-to-end encrypted through public Nostr relays. A rel
 * Connection quality indicator
 * Calls survive a network switch (Wi-Fi ↔ mobile)
 * QR codes for exchanging contacts, call history
+* Missed calls show up even if your phone was offline
+* Password-protected backup of your code and contacts
+* New version notice
 * Calls from codes outside your contacts ring as “Unknown caller”; a “Contacts only” mode is available
 
 <b>Good to know</b>
@@ -23,5 +26,5 @@ The call request travels end-to-end encrypted through public Nostr relays. A rel
 * Voice only: no video, chats or files
 * To receive calls in the background the app keeps a persistent connection to the relays (a silent notification) — no Google Play Services or push services involved
 * Public STUN servers are used for NAT traversal; when a direct connection is impossible a TURN relay is needed — you can set your own in Settings
-* The key never leaves the device; reinstalling the app changes your code
+* The key is stored only on the device; save a backup to keep your code when reinstalling
 * Interface languages: English and Russian

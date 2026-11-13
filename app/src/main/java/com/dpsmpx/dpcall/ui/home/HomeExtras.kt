@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.CallReceived
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -135,7 +136,7 @@ fun rememberQrScanner(onCode: (String) -> Unit): () -> Unit {
 // ------------------------------------------------------------ журнал звонков
 
 @Composable
-fun CallLogRow(entry: CallLogEntry, displayName: String, onCall: (() -> Unit)?) {
+fun CallLogRow(entry: CallLogEntry, displayName: String, onCall: (() -> Unit)?, onAdd: (() -> Unit)? = null) {
     val context = LocalContext.current
     val missed = entry.outcome == CallOutcome.MISSED
     val (icon, tint) = when {
@@ -184,6 +185,14 @@ fun CallLogRow(entry: CallLogEntry, displayName: String, onCall: (() -> Unit)?) 
                     )
                 }
             }
+            if (onAdd != null) {
+                IconButton(onClick = onAdd) {
+                    Icon(
+                        Icons.Default.PersonAdd, stringResource(R.string.add_to_contacts),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
             if (onCall != null) {
                 IconButton(onClick = onCall) {
                     Icon(Icons.Default.Call, stringResource(R.string.call_action), tint = MaterialTheme.colorScheme.primary)
@@ -195,9 +204,12 @@ fun CallLogRow(entry: CallLogEntry, displayName: String, onCall: (() -> Unit)?) 
 
 // ------------------------------------------------- дополнительные настройки
 
-/** Раздел настроек для опытных пользователей: свой TURN, релеи, журнал ошибок. */
+/**
+ * Раздел настроек для редких случаев: резервная копия, ручной приём приглашения,
+ * свой TURN, релеи, журнал ошибок.
+ */
 @Composable
-fun AdvancedSettings() {
+fun AdvancedSettings(onManualInvite: () -> Unit) {
     val context = LocalContext.current
     val settings = remember { AppSettings.get(context) }
     val scope = rememberCoroutineScope()
@@ -213,6 +225,25 @@ fun AdvancedSettings() {
     val relaysInvalid = stringResource(R.string.relays_invalid)
     val turnInvalid = stringResource(R.string.turn_invalid)
     val reportTitle = stringResource(R.string.send_error_log)
+
+    // --- резервная копия
+    BackupSection()
+
+    Spacer(Modifier.height(16.dp))
+
+    // --- ручной приём приглашения
+    Text(stringResource(R.string.manual_invite_title), style = MaterialTheme.typography.titleSmall)
+    Text(
+        stringResource(R.string.manual_invite_desc),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(Modifier.height(6.dp))
+    FilledTonalButton(onClick = onManualInvite, modifier = Modifier.fillMaxWidth()) {
+        Text(stringResource(R.string.manual_invite_button))
+    }
+
+    Spacer(Modifier.height(16.dp))
 
     // --- TURN
     var turn by remember { mutableStateOf(settings.turn) }

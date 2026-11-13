@@ -1,0 +1,5 @@
+* The app announces new versions with a Download button (can be turned off)
+* Missed calls show up even if your phone was offline: an encrypted note waits on the relays for 48 hours
+* Password-protected backup of your code and contacts, to move to another phone
+* The readiness banner tells what prevents incoming calls
+* Sharing a code to DP Call opens a new contact; Call back from the missed-call notification

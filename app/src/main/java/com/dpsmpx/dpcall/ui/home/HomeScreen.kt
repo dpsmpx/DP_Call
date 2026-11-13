@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,9 +29,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.PhoneCallback
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
@@ -71,11 +74,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -83,8 +87,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.dpsmpx.dpcall.call.CallNotifications
 import com.dpsmpx.dpcall.call.ListenService
 import com.dpsmpx.dpcall.call.RelaySignaling
 import com.dpsmpx.dpcall.call.RelayStatus
@@ -94,6 +100,11 @@ import com.dpsmpx.dpcall.util.CodeValidator
 import com.dpsmpx.dpcall.domain.Contact
 import com.dpsmpx.dpcall.ui.components.Avatar
 import com.dpsmpx.dpcall.ui.components.shareText
+import com.dpsmpx.dpcall.update.UpdateChecker
+import android.widget.Toast
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,13 +120,33 @@ fun HomeScreen(
     var contactToRename by remember { mutableStateOf<Contact?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var showQr by remember { mutableStateOf(false) }
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    val tab = state.tab
     val callLog by viewModel.callLog.collectAsStateWithLifecycle()
     val scanQr = rememberQrScanner { scanned -> viewModel.onAddCodeChange(scanned) }
     var showHelp by remember { mutableStateOf(false) }
     val appSettings = remember { AppSettings.get(context) }
     val onboardingShown by appSettings.onboardingShown.collectAsStateWithLifecycle()
     val relayStatus by RelaySignaling.status.collectAsStateWithLifecycle()
+    val background by appSettings.backgroundListening.collectAsStateWithLifecycle()
+    val unseenMissed by appSettings.unseenMissed.collectAsStateWithLifecycle()
+    val storedUpdate by appSettings.availableUpdate.collectAsStateWithLifecycle()
+    val update = remember(storedUpdate) { UpdateChecker.pendingUpdate(context, storedUpdate) }
+    // Разрешения и ограничения меняются в системных настройках — перечитываем при возврате.
+    var resumes by remember { mutableIntStateOf(0) }
+    LifecycleResumeEffect(Unit) {
+        resumes++
+        onPauseOrDispose { }
+    }
+    val readiness = remember(relayStatus.online, background, resumes) {
+        readinessOf(context, relayStatus.online, background)
+    }
+    // Журнал открыт — пропущенные просмотрены.
+    LaunchedEffect(tab, unseenMissed) {
+        if (tab == 1 && unseenMissed > 0) {
+            appSettings.clearUnseenMissed()
+            CallNotifications.clearMissedCalls(context)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -123,14 +154,6 @@ fun HomeScreen(
                 title = { Text("DP Call", fontWeight = FontWeight.SemiBold) },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
                 actions = {
-                    FilledTonalButton(
-                        onClick = { viewModel.openIncomingDialog() },
-                        contentPadding = PaddingValues(horizontal = 14.dp),
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.PhoneCallback, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.answer_action))
-                    }
                     IconButton(onClick = { showSettings = true }) {
                         Icon(Icons.Default.Settings, stringResource(R.string.settings))
                     }
@@ -164,7 +187,24 @@ fun HomeScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    item(key = "status") { ConnectionStatus(relayStatus, onClick = { showSettings = true }) }
+                    item(key = "status") {
+                        ReadinessBanner(readiness) {
+                            when (readiness) {
+                                Readiness.NO_NOTIFICATIONS -> openNotificationSettings(context)
+                                Readiness.BATTERY_RESTRICTED -> requestBatteryExemption(context)
+                                else -> showSettings = true
+                            }
+                        }
+                    }
+                    update?.let { available ->
+                        item(key = "update") {
+                            UpdateBanner(
+                                version = available.version,
+                                onDownload = { openUrl(context, available.url) },
+                                onDismiss = { appSettings.dismissUpdate() }
+                            )
+                        }
+                    }
                     item(key = "own-code") {
                         OwnCodeCard(
                                                         copied = state.copied,
@@ -172,7 +212,12 @@ fun HomeScreen(
                             onCopy = { viewModel.copyCodeToClipboard() },
                             onShare = {
                                 val code = state.identity?.value ?: return@OwnCodeCard
-                                shareText(context, code, context.getString(R.string.share_my_code))
+                                // Получатель должен понять, что это и где взять приложение.
+                                shareText(
+                                    context,
+                                    context.getString(R.string.share_code_text, code, UpdateChecker.RELEASES_PAGE),
+                                    context.getString(R.string.share_my_code)
+                                )
                             }
                         )
                     }
@@ -182,10 +227,19 @@ fun HomeScreen(
                             containerColor = Color.Transparent,
                             modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
                         ) {
-                            Tab(selected = tab == 0, onClick = { tab = 0 }, text = {
+                            Tab(selected = tab == 0, onClick = { viewModel.selectTab(0) }, text = {
                                 Text(if (state.contacts.isEmpty()) stringResource(R.string.contacts) else stringResource(R.string.contacts_count, state.contacts.size))
                             })
-                            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.call_log)) })
+                            Tab(selected = tab == 1, onClick = { viewModel.selectTab(1) }, text = {
+                                if (unseenMissed > 0 && tab != 1) {
+                                    Text(
+                                        stringResource(R.string.call_log_missed_count, unseenMissed),
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                } else {
+                                    Text(stringResource(R.string.call_log))
+                                }
+                            })
                         }
                     }
                     if (tab == 1) {
@@ -209,6 +263,12 @@ fun HomeScreen(
                                     displayName = name,
                                     onCall = if (CodeValidator.isValid(entry.code)) {
                                         { onCall(Contact(code = entry.code, name = name.ifBlank { entry.code.take(5) })) }
+                                    } else {
+                                        null
+                                    },
+                                    // Незнакомого абонента можно сохранить прямо из журнала.
+                                    onAdd = if (contact == null && CodeValidator.isValid(entry.code)) {
+                                        { viewModel.openAddDialog(entry.code) }
                                     } else {
                                         null
                                     }
@@ -281,6 +341,10 @@ fun HomeScreen(
     if (showSettings) {
         SettingsDialog(
             relayStatus = relayStatus,
+            onManualInvite = {
+                showSettings = false
+                viewModel.openIncomingDialog()
+            },
             onHelp = {
                 showSettings = false
                 showHelp = true
@@ -344,18 +408,95 @@ fun HomeScreen(
 
 private val OnlineGreen = Color(0xFF2E9E5B)
 
+/** Насколько приложение готово принять звонок. Порядок — от самого серьёзного препятствия. */
+private enum class Readiness { OFFLINE, NO_NOTIFICATIONS, BACKGROUND_OFF, BATTERY_RESTRICTED, READY }
+
+/**
+ * Соединения с релеями мало: звонок не дойдёт, если Android усыпит приложение, и останется
+ * незамеченным без уведомлений. Плашка зелёная, только когда выполнено всё.
+ */
+private fun readinessOf(context: Context, online: Boolean, background: Boolean): Readiness = when {
+    !online -> Readiness.OFFLINE
+    !CallNotifications.canPostNotifications(context) -> Readiness.NO_NOTIFICATIONS
+    !background -> Readiness.BACKGROUND_OFF
+    !isBatteryUnrestricted(context) -> Readiness.BATTERY_RESTRICTED
+    else -> Readiness.READY
+}
+
 @Composable
-private fun ConnectionStatus(status: RelayStatus, onClick: () -> Unit) {
-    val color = if (status.online) OnlineGreen else MaterialTheme.colorScheme.error
-    Surface(onClick = onClick, shape = RoundedCornerShape(50), color = color.copy(alpha = 0.12f)) {
+private fun ReadinessBanner(readiness: Readiness, onClick: () -> Unit) {
+    val warning = if (isSystemInDarkTheme()) Color(0xFFFFC04D) else Color(0xFF8A5A00)
+    val color = when (readiness) {
+        Readiness.READY -> OnlineGreen
+        Readiness.OFFLINE -> MaterialTheme.colorScheme.error
+        else -> warning
+    }
+    val text = when (readiness) {
+        Readiness.READY -> stringResource(R.string.online_banner)
+        Readiness.OFFLINE -> stringResource(R.string.listen_offline)
+        Readiness.NO_NOTIFICATIONS -> stringResource(R.string.ready_no_notifications)
+        Readiness.BACKGROUND_OFF -> stringResource(R.string.ready_background_off)
+        Readiness.BATTERY_RESTRICTED -> stringResource(R.string.ready_battery_restricted)
+    }
+    Surface(onClick = onClick, shape = RoundedCornerShape(22.dp), color = color.copy(alpha = 0.12f)) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).background(color, CircleShape))
             Spacer(Modifier.width(10.dp))
+            Text(text, style = MaterialTheme.typography.labelLarge, color = color, modifier = Modifier.weight(1f, fill = false))
+            if (readiness != Readiness.READY && readiness != Readiness.OFFLINE) {
+                Spacer(Modifier.width(6.dp))
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, stringResource(R.string.fix), Modifier.size(18.dp), tint = color)
+            }
+        }
+    }
+}
+
+@Composable
+private fun UpdateBanner(version: String, onDownload: () -> Unit, onDismiss: () -> Unit) {
+    Card(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
-                if (status.online) stringResource(R.string.online_banner) else stringResource(R.string.listen_offline),
-                style = MaterialTheme.typography.labelLarge,
-                color = color
+                stringResource(R.string.update_available, version),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f)
             )
+            TextButton(onClick = onDownload) { Text(stringResource(R.string.update_download)) }
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, stringResource(R.string.update_later), Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+private fun openUrl(context: Context, url: String) {
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (e: Exception) {
+        // Браузера нет — адрес остаётся в описании выпуска и в руководстве.
+    }
+}
+
+private fun openNotificationSettings(context: Context) {
+    try {
+        context.startActivity(
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    } catch (e: Exception) {
+        try {
+            context.startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (ignored: Exception) {
         }
     }
 }
@@ -391,13 +532,19 @@ private fun SettingRow(title: String, description: String, checked: Boolean, onC
 }
 
 @Composable
-private fun SettingsDialog(relayStatus: RelayStatus, onHelp: () -> Unit, onDismiss: () -> Unit) {
+private fun SettingsDialog(relayStatus: RelayStatus, onManualInvite: () -> Unit, onHelp: () -> Unit, onDismiss: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val settings = remember { AppSettings.get(context) }
     val background by settings.backgroundListening.collectAsStateWithLifecycle()
     val contactsOnly by settings.contactsOnly.collectAsStateWithLifecycle()
+    val missedNotices by settings.missedNotices.collectAsStateWithLifecycle()
+    val updateCheck by settings.updateCheck.collectAsStateWithLifecycle()
+    var checking by remember { mutableStateOf(false) }
     // Перечитывается при каждом открытии диалога и после возврата из системных настроек.
     val unrestricted = isBatteryUnrestricted(context)
+    val upToDate = stringResource(R.string.update_none)
+    val checkFailed = stringResource(R.string.update_check_failed)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -420,14 +567,7 @@ private fun SettingsDialog(relayStatus: RelayStatus, onHelp: () -> Unit, onDismi
                         ListenService.sync(context)
                     }
                 )
-                SettingRow(
-                    title = stringResource(R.string.setting_contacts_only),
-                    description = stringResource(R.string.setting_contacts_only_desc),
-                    checked = contactsOnly,
-                    onChange = { settings.setContactsOnly(it) }
-                )
                 if (background && !unrestricted) {
-                    Spacer(Modifier.height(8.dp))
                     Text(
                         stringResource(R.string.battery_hint),
                         style = MaterialTheme.typography.bodySmall,
@@ -437,9 +577,50 @@ private fun SettingsDialog(relayStatus: RelayStatus, onHelp: () -> Unit, onDismi
                     FilledTonalButton(onClick = { requestBatteryExemption(context) }, modifier = Modifier.fillMaxWidth()) {
                         Text(stringResource(R.string.battery_button))
                     }
+                    Spacer(Modifier.height(8.dp))
                 }
-                Spacer(Modifier.height(8.dp))
-                AdvancedSettings()
+                SettingRow(
+                    title = stringResource(R.string.setting_contacts_only),
+                    description = stringResource(R.string.setting_contacts_only_desc),
+                    checked = contactsOnly,
+                    onChange = { settings.setContactsOnly(it) }
+                )
+                SettingRow(
+                    title = stringResource(R.string.setting_missed_notices),
+                    description = stringResource(R.string.setting_missed_notices_desc),
+                    checked = missedNotices,
+                    onChange = {
+                        settings.setMissedNotices(it)
+                        // Подписка на отметки задаётся при подключении к релеям.
+                        RelaySignaling.restart(context)
+                    }
+                )
+                SettingRow(
+                    title = stringResource(R.string.setting_update_check),
+                    description = stringResource(
+                        R.string.setting_update_check_desc, UpdateChecker.installedVersion(context)
+                    ),
+                    checked = updateCheck,
+                    onChange = { settings.setUpdateCheck(it) }
+                )
+                TextButton(
+                    enabled = !checking,
+                    onClick = {
+                        checking = true
+                        scope.launch {
+                            val result = UpdateChecker.check(context)
+                            checking = false
+                            when (result) {
+                                // О найденной версии скажет плашка на главном экране.
+                                UpdateChecker.Result.UPDATE_AVAILABLE -> onDismiss()
+                                UpdateChecker.Result.UP_TO_DATE -> Toast.makeText(context, upToDate, Toast.LENGTH_SHORT).show()
+                                UpdateChecker.Result.FAILED -> Toast.makeText(context, checkFailed, Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(stringResource(if (checking) R.string.update_checking else R.string.update_check_now)) }
+                AdvancedSettings(onManualInvite = onManualInvite)
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.done)) } },
@@ -661,6 +842,12 @@ private fun AddContactDialog(
     onCodeChange: (String) -> Unit, onNameChange: (String) -> Unit,
     onPaste: () -> Unit, onScan: () -> Unit, onConfirm: () -> Unit, onDismiss: () -> Unit
 ) {
+    // Код вставлен или отсканирован целиком — остаётся только ввести имя.
+    val nameFocus = remember { FocusRequester() }
+    val codeComplete = CodeValidator.isValid(CodeValidator.normalize(codeInput))
+    LaunchedEffect(codeComplete) {
+        if (codeComplete) runCatching { nameFocus.requestFocus() }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.new_contact)) },
@@ -682,7 +869,7 @@ private fun AddContactDialog(
                 OutlinedTextField(
                     value = nameInput, onValueChange = onNameChange,
                     label = { Text(stringResource(R.string.name)) },
-                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    singleLine = true, modifier = Modifier.fillMaxWidth().focusRequester(nameFocus),
                     isError = error != null,
                     supportingText = error?.let { { Text(it) } }
                 )

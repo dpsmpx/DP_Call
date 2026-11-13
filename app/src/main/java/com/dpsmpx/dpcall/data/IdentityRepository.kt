@@ -79,6 +79,22 @@ class IdentityRepository(context: Context) {
         keys
     }
 
+    /** Секретный ключ для резервной копии. */
+    suspend fun exportSecret(): ByteArray = loadKeys().secret.copyOf()
+
+    /**
+     * Заменяет ключи пользователя ключами из резервной копии. Прежний код при этом
+     * теряется безвозвратно, если для него не сделана своя копия.
+     */
+    suspend fun replace(keys: IdentityKeys) = mutex.withLock {
+        val wrapped = Base64.encodeToString(wrap(keys.secret), Base64.NO_WRAP)
+        context.identityDataStore.edit { prefs ->
+            prefs[keySecret] = wrapped
+            prefs[keyIdentity] = keys.code
+        }
+        cached = keys
+    }
+
     private fun wrappingKey(): SecretKey {
         val keyStore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
         (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }

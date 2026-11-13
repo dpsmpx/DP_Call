@@ -2,7 +2,7 @@
 
 1. Keep the app focused: **voice calls only**.
 2. No developer-run servers in the critical path.
-3. No proprietary dependencies (the app must stay F-Droid compatible).
+3. No proprietary dependencies: no Google Play Services, no closed SDKs.
 4. Prefer clarity over cleverness.
 5. Open source (MIT).
 

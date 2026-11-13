@@ -57,6 +57,7 @@ object RelaySignaling {
                 val created = RelayMessenger(
                     keys = keys,
                     relays = relays,
+                    receiveMissed = AppSettings.get(app).missedNotices.value,
                     onMessage = { from, message -> main.post { CallManager.onRelayMessage(from, message) } },
                     onStatus = { connected, total ->
                         if (_status.value.connected != connected) AppLog.add(TAG, "relays connected: $connected/$total")

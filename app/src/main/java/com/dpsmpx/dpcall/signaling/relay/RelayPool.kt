@@ -31,6 +31,9 @@ class RelayPool(
     private val urls: List<String>,
     private val inboxTag: String,
     private val kind: Int,
+    /** Хранимые события, которые нужно забрать за последние [storedWindowSec] секунд; null — не нужны. */
+    private val storedKind: Int? = null,
+    private val storedWindowSec: Long = 0,
     private val onEvent: (NostrEvent) -> Unit,
     private val onStatus: (connected: Int, total: Int) -> Unit,
     private val log: (String) -> Unit = {}
@@ -98,7 +101,7 @@ class RelayPool(
         }
         if (message.size < 3) return
         val event = NostrEvent.fromJson(message[2]) ?: return
-        if (event.kind != kind || event.firstTag("p") != inboxTag) return
+        if ((event.kind != kind && event.kind != storedKind) || event.firstTag("p") != inboxTag) return
         // Одно и то же событие приходит от нескольких релеев.
         if (!seenIds.add(event.id)) return
         if (seenIds.size > 500) seenIds.iterator().let { it.next(); it.remove() }
@@ -161,14 +164,24 @@ class RelayPool(
                 connecting = false
                 open = true
                 backoffSec = 2L
+                val now = System.currentTimeMillis() / 1000
                 val request = buildJsonArray {
                     add(JsonPrimitive("REQ"))
                     add(JsonPrimitive("dpcall"))
                     add(buildJsonObject {
                         putJsonArray("kinds") { add(JsonPrimitive(kind)) }
                         putJsonArray("#p") { add(JsonPrimitive(inboxTag)) }
-                        put("since", System.currentTimeMillis() / 1000 - 60)
+                        put("since", now - 60)
                     })
+                    if (storedKind != null) {
+                        // То, что пришло, пока нас не было на связи.
+                        add(buildJsonObject {
+                            putJsonArray("kinds") { add(JsonPrimitive(storedKind)) }
+                            putJsonArray("#p") { add(JsonPrimitive(inboxTag)) }
+                            put("since", now - storedWindowSec)
+                            put("limit", STORED_LIMIT)
+                        })
+                    }
                 }
                 webSocket.send(request.toString())
                 notifyStatus()
@@ -199,6 +212,8 @@ class RelayPool(
     }
 
     companion object {
+        private const val STORED_LIMIT = 50
+
         /**
          * Публичные релеи без регистрации, независимые операторы.
          * Каждый проверен: пересылает наши эфемерные события между двумя

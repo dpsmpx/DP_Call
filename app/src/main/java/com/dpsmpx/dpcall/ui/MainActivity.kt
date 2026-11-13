@@ -15,6 +15,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
+import androidx.core.app.NotificationManagerCompat
 import androidx.compose.animation.Crossfade
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
@@ -23,6 +25,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.dpsmpx.dpcall.call.CallManager
+import com.dpsmpx.dpcall.call.CallNotifications
 import com.dpsmpx.dpcall.call.ListenService
 import com.dpsmpx.dpcall.call.RelaySignaling
 import com.dpsmpx.dpcall.call.SignalResult
@@ -30,6 +33,9 @@ import com.dpsmpx.dpcall.data.AppSettings
 import com.dpsmpx.dpcall.signaling.SignalCodec
 import com.dpsmpx.dpcall.ui.call.CallScreen
 import com.dpsmpx.dpcall.ui.home.HomeScreen
+import com.dpsmpx.dpcall.ui.home.HomeViewModel
+import com.dpsmpx.dpcall.update.UpdateChecker
+import com.dpsmpx.dpcall.util.CodeValidator
 import com.dpsmpx.dpcall.ui.theme.DPCallTheme
 import com.dpsmpx.dpcall.webrtc.CallState
 import kotlinx.coroutines.launch
@@ -52,6 +58,9 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, getString(R.string.mic_required), Toast.LENGTH_LONG).show()
         }
     }
+
+    /** Та же модель, что у главного экрана: через неё открываются диалоги по внешним действиям. */
+    private val homeViewModel: HomeViewModel by viewModels()
 
     /** Отметка времени содержимого буфера, которое мы уже проверяли. */
     private var lastClipTimestamp = -1L
@@ -103,6 +112,8 @@ class MainActivity : ComponentActivity() {
         // С экрана запуск фонового сервиса всегда разрешён — даже если из фона не удалось.
         ListenService.sync(this)
         RelaySignaling.reconnectNow()
+        // Не чаще раза в сутки и только если проверка не выключена в настройках.
+        lifecycleScope.launch { UpdateChecker.checkIfDue(applicationContext) }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -112,6 +123,32 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
+        when (intent?.action) {
+            ACTION_ADD_CONTACT -> {
+                // Чужое приложение может прислать это действие, но оно лишь открывает диалог:
+                // контакт появится, только если пользователь сам введёт имя и подтвердит.
+                val code = intent.getStringExtra(EXTRA_CODE)?.take(MAX_EXTRA_CHARS)?.let(CodeValidator::extract)
+                intent.action = Intent.ACTION_MAIN
+                if (code != null && !CallManager.uiState.value.state.isActive) homeViewModel.openAddDialog(code)
+            }
+            ACTION_SHOW_LOG, ACTION_CALL_BACK -> {
+                val callBack = intent.action == ACTION_CALL_BACK
+                val code = intent.getStringExtra(EXTRA_CODE)?.take(MAX_EXTRA_CHARS)
+                val name = intent.getStringExtra(EXTRA_NAME)?.take(MAX_EXTRA_CHARS).orEmpty()
+                // Звонок начинаем только по действию из собственного уведомления.
+                val trusted = intent.getStringExtra(EXTRA_INTENT_TOKEN) == AppSettings.get(this).intentToken
+                intent.action = Intent.ACTION_MAIN
+                intent.removeExtra(EXTRA_INTENT_TOKEN)
+                homeViewModel.showCallLog()
+                // Кнопка действия, в отличие от нажатия на само уведомление, его не снимает.
+                if (trusted && code != null) NotificationManagerCompat.from(this).cancel(code, CallNotifications.MISSED_NOTIFICATION_ID)
+                if (callBack && trusted && code != null && CodeValidator.isValid(code) &&
+                    !CallManager.uiState.value.state.isActive
+                ) {
+                    withMicPermission { CallManager.startOutgoing(name.ifBlank { code.take(5) }, code) }
+                }
+            }
+        }
         if (intent?.action == ACTION_ANSWER) {
             // Действие одноразовое: не повторяем его при пересоздании Activity.
             intent.action = ACTION_SHOW_CALL
@@ -205,6 +242,16 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val ACTION_ANSWER = "com.dpsmpx.dpcall.action.ANSWER"
         const val ACTION_SHOW_CALL = "com.dpsmpx.dpcall.action.SHOW_CALL"
+        /** Открыть «Новый контакт» с кодом из [EXTRA_CODE] (из «Поделиться»). */
+        const val ACTION_ADD_CONTACT = "com.dpsmpx.dpcall.action.ADD_CONTACT"
+        /** Открыть журнал (нажатие на уведомление о пропущенном). */
+        const val ACTION_SHOW_LOG = "com.dpsmpx.dpcall.action.SHOW_LOG"
+        /** Перезвонить на [EXTRA_CODE]; выполняется только с верным [EXTRA_INTENT_TOKEN]. */
+        const val ACTION_CALL_BACK = "com.dpsmpx.dpcall.action.CALL_BACK"
+        const val EXTRA_CODE = "com.dpsmpx.dpcall.extra.CODE"
+        const val EXTRA_NAME = "com.dpsmpx.dpcall.extra.NAME"
+        const val EXTRA_INTENT_TOKEN = "com.dpsmpx.dpcall.extra.INTENT_TOKEN"
+        private const val MAX_EXTRA_CHARS = 200
         const val EXTRA_ANSWER_TOKEN = "com.dpsmpx.dpcall.extra.ANSWER_TOKEN"
 
         /** Метка наших собственных записей в буфере обмена. */

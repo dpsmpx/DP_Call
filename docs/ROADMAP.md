@@ -33,7 +33,7 @@
 ## Stage 3 — First release (done, v1.0.0)
 - First-run guide, permission UX
 - GitHub Actions build, GitHub Releases
-- F-Droid metadata and submission guide
+- Store listing metadata (descriptions, screenshots)
 
 ## Stage 3.1 — v1.1.0 (done)
 - R8 minification, ARM-only release APK
@@ -42,10 +42,17 @@
 - Custom TURN server, configurable relay list, local error log export
 - English UI, privacy policy, reproducible build
 
+## Stage 3.2 — v1.2.0 (done)
+- Readiness banner: green only when a call will really get through
+- Missed-call notes for calls made while the callee was offline (stored on relays for 48 h)
+- Password-protected backup of the key and contacts
+- Update notice from GitHub Releases
+- Contact codes accepted from the share sheet and the clipboard; call back from the
+  missed-call notification; add unknown callers from the history
+
 ## Stage 4 — Hardening
 - Security and code audit before the public release (done, see SECURITY.md)
 - Own release signing key (done)
-- F-Droid inclusion; app screenshots for the store listing
 - Stress tests on real networks, Doze and vendor battery savers
 
 ## Later

@@ -33,6 +33,7 @@ import com.dpsmpx.dpcall.webrtc.AudioRoute
 import com.dpsmpx.dpcall.webrtc.CallState
 import com.dpsmpx.dpcall.webrtc.LinkStats
 import com.dpsmpx.dpcall.webrtc.PeerConnectionManager
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -71,6 +72,8 @@ data class CallUiState(
     val remoteRinging: Boolean = false,
     /** Вызов не дошёл: собеседник не в сети. Остаётся ручная отправка приглашения. */
     val peerUnreachable: Boolean = false,
+    /** Подтверждения «звонит» всё нет: вызов продолжается, но ручная отправка уже предложена. */
+    val slowToReach: Boolean = false,
     val audioRoute: AudioRoute = AudioRoute.EARPIECE,
     val availableRoutes: List<AudioRoute> = listOf(AudioRoute.EARPIECE, AudioRoute.SPEAKER),
     val noiseSuppression: Boolean = true,
@@ -131,6 +134,10 @@ object CallManager {
     private const val NO_ANSWER_TIMEOUT_MS = 65_000L
     /** С запасом на неточные часы устройств; повторы отсекаются по идентификатору звонка. */
     private const val RELAY_MESSAGE_MAX_AGE_MS = 5 * 60_000L
+    /** Через сколько без подтверждения «звонит» честно говорим, что собеседник пока не отвечает. */
+    private const val SLOW_REACH_MS = 12_000L
+    /** Отметка о пропущенном старше срока хранения на релеях — повтор или сбитые часы. */
+    private const val MISSED_MAX_AGE_MS = 49 * 3600_000L
     private const val MSG_BYE = "bye"
     private const val MSG_MUTE = "mute:"
 
@@ -155,7 +162,12 @@ object CallManager {
 
     /** Время последних вызовов с незнакомых кодов — для ограничения частоты. */
     private val unknownCallTimes = ArrayDeque<Long>()
+    private val unknownNoticeTimes = ArrayDeque<Long>()
     private var contacts: List<Contact> = emptyList()
+    /** Контакты прочитаны с диска: до этого нельзя судить, знаком ли нам звонивший. */
+    private val contactsLoaded = CompletableDeferred<Unit>()
+    /** Отметка о пропущенном для текущего исходящего звонка уже оставлена. */
+    private var missedNoticeSent = false
 
     /** Увеличивается при каждом новом звонке и при завершении — отсекает устаревшие колбэки. */
     private var generation = 0
@@ -241,16 +253,13 @@ object CallManager {
 
         val identityRepo = IdentityRepository(app)
         scope.launch {
-            runCatching {
-                val keys = identityRepo.loadKeys()
-                mySecret = keys.secret
-                myIdentity = keys.code
-            }
+            reloadIdentity()
             identityRepo.identityFlow.collect { id -> id?.let { myIdentity = it.value } }
         }
         scope.launch {
             ContactsRepository(app).contactsFlow.collect { list ->
                 contacts = list
+                contactsLoaded.complete(Unit)
                 // При холодном старте через «Поделиться» звонок может начаться раньше,
                 // чем загрузятся контакты, — подставляем имя, как только оно известно.
                 val current = _uiState.value
@@ -263,6 +272,19 @@ object CallManager {
                 }
             }
         }
+    }
+
+    private suspend fun reloadIdentity() {
+        runCatching {
+            val keys = IdentityRepository(app).loadKeys()
+            mySecret = keys.secret
+            myIdentity = keys.code
+        }
+    }
+
+    /** Ключи заменены (восстановление из резервной копии): подписываем уже новыми. */
+    fun onIdentityChanged() {
+        scope.launch { reloadIdentity() }
     }
 
     fun hasMicPermission(): Boolean =
@@ -367,6 +389,8 @@ object CallManager {
     private fun ring(offer: DecodedSignal, code: String, id: String, viaRelay: Boolean) {
         val gen = beginCall()
         callId = id
+        // Телефон звонит — отметка о пропущенном для этого же звонка уже не нужна.
+        settings.markCallSeen(id)
         callStartedAt = System.currentTimeMillis()
         val contact = contacts.firstOrNull { it.code.equals(code, ignoreCase = true) }
         val name = contact?.name ?: app.getString(R.string.unknown_caller)
@@ -386,7 +410,7 @@ object CallManager {
         startTelecom(name, code, incoming = true)
         main.postDelayed({
             if (gen == generation && state == CallState.RINGING) {
-                CallNotifications.showMissedCall(app, name)
+                CallNotifications.showMissedCall(app, name, code)
                 finish(DisconnectCause.MISSED, app.getString(R.string.missed_call), graceful = false)
             }
         }, RING_TIMEOUT_MS)
@@ -402,6 +426,10 @@ object CallManager {
                 "fromPeer=${fromCode.equals(_uiState.value.contactCode, ignoreCase = true)} " +
                 "signal=${message.signal?.length ?: 0} ageMs=${System.currentTimeMillis() - message.ts}"
         )
+        if (message.t == CallMessage.MISSED) {
+            onMissedNotice(fromCode, message)
+            return
+        }
         if (abs(System.currentTimeMillis() - message.ts) > RELAY_MESSAGE_MAX_AGE_MS) return
         if (message.t == CallMessage.OFFER) {
             onRelayOffer(fromCode, message)
@@ -415,7 +443,7 @@ object CallManager {
         }
         when (message.t) {
             CallMessage.RINGING -> if (current.state == CallState.WAITING_FOR_ANSWER && !current.remoteRinging) {
-                _uiState.update { it.copy(remoteRinging = true, peerUnreachable = false, statusMessage = app.getString(R.string.status_ringing)) }
+                _uiState.update { it.copy(remoteRinging = true, peerUnreachable = false, slowToReach = false, statusMessage = app.getString(R.string.status_ringing)) }
                 startRingback()
                 val gen = generation
                 main.postDelayed({
@@ -442,7 +470,7 @@ object CallManager {
             CallMessage.RE_ANSWER -> message.signal?.let { onRestartAnswer(it) }
             CallMessage.CANCEL, CallMessage.BYE -> {
                 if (current.state == CallState.RINGING) {
-                    CallNotifications.showMissedCall(app, current.contactName)
+                    CallNotifications.showMissedCall(app, current.contactName, current.contactCode)
                     finish(DisconnectCause.MISSED, "", graceful = false, showEnded = false)
                 } else {
                     finish(DisconnectCause.REMOTE, app.getString(R.string.peer_ended), graceful = false)
@@ -490,6 +518,57 @@ object CallManager {
         }
         ring(decoded, code = fromCode, id = message.id, viaRelay = true)
         sendToPeer(CallMessage.RINGING)
+    }
+
+    /**
+     * «Вам звонили»: вызов не дошёл, потому что мы были не в сети. Отметка хранится на
+     * релеях и приходит при каждом подключении, поэтому уже учтённые отсекаются по
+     * идентификатору звонка, сохранённому на диске.
+     */
+    private fun onMissedNotice(fromCode: String, message: CallMessage) {
+        if (!settings.missedNotices.value) return
+        val now = System.currentTimeMillis()
+        if (now - message.ts > MISSED_MAX_AGE_MS || message.ts - now > RELAY_MESSAGE_MAX_AGE_MS) return
+        scope.launch {
+            contactsLoaded.await()
+            val contact = contacts.firstOrNull { it.code.equals(fromCode, ignoreCase = true) }
+            if (contact == null) {
+                if (settings.contactsOnly.value) return@launch
+                // Незнакомые коды не должны заваливать журнал: тот же предел, что и для звонков.
+                val tick = SystemClock.elapsedRealtime()
+                while (unknownNoticeTimes.isNotEmpty() && tick - unknownNoticeTimes.first() > UNKNOWN_CALL_WINDOW_MS) {
+                    unknownNoticeTimes.removeFirst()
+                }
+                if (unknownNoticeTimes.size >= UNKNOWN_CALL_LIMIT) return@launch
+            }
+            if (!settings.markCallSeen(message.id)) return@launch
+            if (contact == null) unknownNoticeTimes.addLast(SystemClock.elapsedRealtime())
+            val name = contact?.name ?: app.getString(R.string.unknown_caller)
+            AppLog.add(TAG, "missed call notice: call=${message.id.take(6)} known=${contact != null}")
+            runCatching {
+                callLog.add(
+                    CallLogEntry(
+                        code = fromCode, name = name, incoming = true,
+                        outcome = CallOutcome.MISSED, startedAt = message.ts.coerceAtMost(now)
+                    )
+                )
+            }
+            settings.addUnseenMissed()
+            CallNotifications.showMissedCall(app, name, fromCode, at = message.ts.coerceAtMost(now))
+        }
+    }
+
+    /**
+     * Оставляет собеседнику отметку о звонке, который до него не дошёл. Нужна только
+     * если его телефон не звонил: иначе он увидит пропущенный и так.
+     */
+    private fun leaveMissedNotice() {
+        val current = _uiState.value
+        if (missedNoticeSent || !settings.missedNotices.value) return
+        if (current.isIncoming || !current.viaRelay || current.remoteRinging || !signalFinalized) return
+        if (current.state != CallState.WAITING_FOR_ANSWER) return
+        missedNoticeSent = true
+        sendToPeer(CallMessage.MISSED)
     }
 
     /** Отправляет служебное сообщение собеседнику текущего звонка. */
@@ -601,6 +680,7 @@ object CallManager {
                 signalToCopy = null,
                 remoteRinging = false,
                 peerUnreachable = false,
+                slowToReach = false,
                 statusMessage = app.getString(R.string.status_connecting),
                 errorMessage = null
             )
@@ -673,6 +753,7 @@ object CallManager {
         val notAnsweredYet = !current.isIncoming &&
             (current.state == CallState.CREATING_OFFER || current.state == CallState.WAITING_FOR_ANSWER)
         pcm?.sendControl(MSG_BYE)
+        leaveMissedNotice()
         sendToPeer(if (notAnsweredYet) CallMessage.CANCEL else CallMessage.BYE)
         finish(DisconnectCause.LOCAL, app.getString(R.string.call_ended), graceful = true)
     }
@@ -781,11 +862,22 @@ object CallManager {
                 CallMessage.OFFER, ::buildLocalSignal, OFFER_RESEND_ATTEMPTS, OFFER_RESEND_MS,
                 done = { state != CallState.WAITING_FOR_ANSWER || _uiState.value.remoteRinging },
                 onExhausted = {
+                    // Отметку оставляем сразу: звонящий может просто закрыть приложение.
+                    leaveMissedNotice()
                     _uiState.update {
                         it.copy(peerUnreachable = true, statusMessage = app.getString(R.string.peer_offline))
                     }
                 }
             )
+            val gen = generation
+            main.postDelayed({
+                val current = _uiState.value
+                if (gen == generation && current.state == CallState.WAITING_FOR_ANSWER && current.viaRelay &&
+                    !current.remoteRinging && !current.peerUnreachable
+                ) {
+                    _uiState.update { it.copy(slowToReach = true, statusMessage = app.getString(R.string.status_slow_to_reach)) }
+                }
+            }, SLOW_REACH_MS)
         } else {
             startResend(
                 CallMessage.ANSWER, ::buildLocalSignal, ANSWER_RESEND_ATTEMPTS, ANSWER_RESEND_MS,
@@ -1117,6 +1209,7 @@ object CallManager {
         candidateFlushScheduled = false
         sentCandidateCount = 0
         setupGraceScheduled = false
+        missedNoticeSent = false
         loggedRoute = null
         restartJob?.cancel()
         restartJob = null
@@ -1198,6 +1291,7 @@ object CallManager {
             startedAt = if (callStartedAt != 0L) callStartedAt else System.currentTimeMillis(),
             durationSec = if (connected) (SystemClock.elapsedRealtime() - prev.connectedAt) / 1000 else 0L
         )
+        if (entry.outcome == CallOutcome.MISSED) settings.addUnseenMissed()
         scope.launch { runCatching { callLog.add(entry) } }
     }
 

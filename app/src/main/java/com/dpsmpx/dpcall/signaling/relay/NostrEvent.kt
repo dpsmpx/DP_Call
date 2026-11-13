@@ -53,6 +53,13 @@ class NostrEvent(
          */
         const val KIND_CALL_SIGNAL = 24242
 
+        /**
+         * Отметка о пропущенном звонке — обычное событие: релей хранит его, пока
+         * не истечёт срок из тега `expiration` (NIP-40), и отдаёт адресату, когда
+         * тот выйдет на связь.
+         */
+        const val KIND_MISSED_CALL = 4245
+
         private fun computeId(pubkey: String, createdAt: Long, kind: Int, tags: List<List<String>>, content: String): ByteArray {
             val canonical = buildJsonArray {
                 add(JsonPrimitive(0))
