@@ -302,4 +302,6 @@
     <string name="network_test_desc">Проверяет каждый релей (в том числе не замирает ли соединение после первых килобайт), STUN- и TURN-серверы и сайт из белого списка. Занимает около минуты. IP-адресов в отчёте нет; поделитесь им, чтобы помочь понять, что работает в вашей сети.</string>
     <string name="network_test_running">Проверяем…</string>
     <string name="network_test_share">Поделиться отчётом</string>
+    <string name="sms_nudge">Сообщить по SMS</string>
+    <string name="sms_nudge_text">Звоню тебе в DP Call, но не могу дозвониться. Открой приложение — лучше на Wi-Fi — и перезвони мне. Если его ещё нет: %1$s</string>
 </resources>

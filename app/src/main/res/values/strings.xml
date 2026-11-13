@@ -303,4 +303,6 @@
     <string name="network_test_desc">Checks each relay (including whether the connection freezes after the first kilobytes), STUN and TURN servers and a whitelisted site. Takes about a minute. The report contains no IP addresses; share it to help find what works on your network.</string>
     <string name="network_test_running">Testing…</string>
     <string name="network_test_share">Share report</string>
+    <string name="sms_nudge">Tell them by SMS</string>
+    <string name="sms_nudge_text">I\'m calling you in DP Call but can\'t get through. Open the app — preferably on Wi-Fi — and call me back. Don\'t have it yet? %1$s</string>
 </resources>
