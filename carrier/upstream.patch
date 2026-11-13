@@ -1,0 +1,144 @@
+diff --git a/relay/pion/headless-joiner-common/dial.go b/relay/pion/headless-joiner-common/dial.go
+index 2fd0808..8076bb4 100644
+--- a/relay/pion/headless-joiner-common/dial.go
++++ b/relay/pion/headless-joiner-common/dial.go
+@@ -24,7 +24,7 @@ func resolvingDialContext(resolveFn ResolveFunc) func(ctx context.Context, netwo
+ 		}
+ 		dialer := headless.ChromeDialer()
+ 		dialer.Timeout = 10 * time.Second
+-		return dialer.DialContext(ctx, network, resolvedIP+":"+port)
++		return dialer.DialContext(ctx, network, net.JoinHostPort(resolvedIP, port))
+ 	}
+ }
+ 
+diff --git a/relay/pion/headless-joiner-common/telemost_joiner.go b/relay/pion/headless-joiner-common/telemost_joiner.go
+index 7e6d226..db9c7b8 100644
+--- a/relay/pion/headless-joiner-common/telemost_joiner.go
++++ b/relay/pion/headless-joiner-common/telemost_joiner.go
+@@ -232,7 +232,7 @@ func (j *TelemostHeadlessJoiner) isClosed() bool {
+ 
+ func (j *TelemostHeadlessJoiner) tlsOptions() headless.TLSOptions {
+ 	return headless.TLSOptions{
+-		InsecureSkipVerify: true,
++		InsecureSkipVerify: false,
+ 		DialContext:        resolvingDialContext(j.ResolveFn),
+ 	}
+ }
+@@ -951,12 +951,12 @@ func (j *TelemostHeadlessJoiner) connectAndRun() {
+ 	j.logFn("telemost-joiner: connecting to %s", j.mediaURL)
+ 	dialer := headless.ChromeWindows.WebSocketDialer(headless.TLSOptions{
+ 		ServerName:         hostname,
+-		InsecureSkipVerify: true,
++		InsecureSkipVerify: false,
+ 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+ 			_, port, _ := net.SplitHostPort(addr)
+ 			dialer := headless.ChromeDialer()
+ 			dialer.Timeout = 10 * time.Second
+-			return dialer.DialContext(ctx, network, resolvedIP+":"+port)
++			return dialer.DialContext(ctx, network, net.JoinHostPort(resolvedIP, port))
+ 		},
+ 	})
+ 	dialer.HandshakeTimeout = 10 * time.Second
+diff --git a/relay/pion/headless-joiner-common/vk_auth.go b/relay/pion/headless-joiner-common/vk_auth.go
+index b820dc6..0861fdd 100644
+--- a/relay/pion/headless-joiner-common/vk_auth.go
++++ b/relay/pion/headless-joiner-common/vk_auth.go
+@@ -42,7 +42,7 @@ func RunVKAuth(joinLink string, displayName string, logFn func(string, ...any),
+ 			}
+ 			dialer := headless.ChromeDialer()
+ 			dialer.Timeout = 10 * time.Second
+-			return dialer.DialContext(ctx, network, resolvedIP+":"+port)
++			return dialer.DialContext(ctx, network, net.JoinHostPort(resolvedIP, port))
+ 		}
+ 	}
+ 	client := &http.Client{Timeout: 60 * time.Second, Transport: headless.ChromeWindows.Transport(tlsOptions)}
+diff --git a/relay/pion/headless-joiner-common/vk_joiner.go b/relay/pion/headless-joiner-common/vk_joiner.go
+index 237309f..bbab076 100644
+--- a/relay/pion/headless-joiner-common/vk_joiner.go
++++ b/relay/pion/headless-joiner-common/vk_joiner.go
+@@ -72,6 +72,7 @@ type VKJoinResponse struct {
+ }
+ 
+ type VKHeadlessJoiner struct {
++	initiator   bool
+ 	logFn       func(string, ...any)
+ 	OnConnected func(tunnel.DataTunnel)
+ 	// OnRemoteCandidate is fired for every trickle ICE candidate the
+@@ -125,6 +126,24 @@ func NewVKHeadlessJoiner(logFn func(string, ...any), resolveFn ResolveFunc, stat
+ 	}
+ }
+ 
++// DP Call peers are both guests; one must initiate SDP negotiation.
++func (h *VKHeadlessJoiner) SetInitiator(initiator bool) { h.initiator = initiator }
++func (h *VKHeadlessJoiner) maybeOffer() {
++	if !h.initiator || h.pc == nil || h.remotePeerID == nil || h.pc.LocalDescription() != nil {
++		return
++	}
++	offer, err := h.pc.CreateOffer(nil)
++	if err != nil {
++		h.Status.EmitStatusError("create offer")
++		return
++	}
++	if err = h.pc.SetLocalDescription(offer); err != nil {
++		h.Status.EmitStatusError("set local offer")
++		return
++	}
++	h.vkSendTransmitData(*h.remotePeerID, map[string]interface{}{"sdp": map[string]interface{}{"type": "offer", "sdp": offer.SDP}})
++}
++
+ func (h *VKHeadlessJoiner) RunWithParams(jsonParams string) {
+ 	var params VKHeadlessAuthParams
+ 	if err := json.Unmarshal([]byte(jsonParams), &params); err != nil {
+@@ -303,12 +322,12 @@ func (h *VKHeadlessJoiner) joinCall() error {
+ 		Timeout: 15 * time.Second,
+ 		Transport: headless.ChromeWindows.Transport(headless.TLSOptions{
+ 			ServerName:         parsed.Hostname(),
+-			InsecureSkipVerify: true,
++			InsecureSkipVerify: false,
+ 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+ 				_, port, _ := net.SplitHostPort(addr)
+ 				dialer := headless.ChromeDialer()
+ 				dialer.Timeout = 10 * time.Second
+-				return dialer.DialContext(ctx, network, resolvedIP+":"+port)
++				return dialer.DialContext(ctx, network, net.JoinHostPort(resolvedIP, port))
+ 			},
+ 		}),
+ 	}
+@@ -593,7 +612,8 @@ func (h *VKHeadlessJoiner) initPC() {
+ 	}
+ 
+ 	pc, err := api.NewPeerConnection(webrtc.Configuration{
+-		ICEServers: iceServers,
++		ICETransportPolicy: webrtc.ICETransportPolicyRelay,
++		ICEServers:         iceServers,
+ 	})
+ 	if err != nil {
+ 		h.logFn("vk-joiner: failed to create PC: %v", err)
+@@ -706,11 +726,13 @@ func (h *VKHeadlessJoiner) initPC() {
+ 		})
+ 	}
+ 
+-	h.logFn("vk-joiner: PC ready, waiting for remote offer")
++	h.logFn("vk-joiner: PC ready")
++	h.maybeOffer()
+ }
+ 
+ func (h *VKHeadlessJoiner) onRegisteredPeer(pid int64) {
+ 	h.remotePeerID = &pid
++	h.maybeOffer()
+ 	h.logFn("vk-joiner: peer registered: %d", pid)
+ }
+ 
+diff --git a/relay/wtsignal/wtsignal.go b/relay/wtsignal/wtsignal.go
+index 3c01316..d23b088 100644
+--- a/relay/wtsignal/wtsignal.go
++++ b/relay/wtsignal/wtsignal.go
+@@ -68,7 +68,7 @@ func Dial(endpoint, serverName, resolvedIP, origin string) (*Conn, error) {
+ 	qconn, err := headless.ChromeWindows.DialQUIC(dialCtx, net.JoinHostPort(resolvedIP, port), headless.QUICOptions{
+ 		Transport:          headless.QUICWebTransport,
+ 		ServerName:         serverName,
+-		InsecureSkipVerify: true,
++		InsecureSkipVerify: false,
+ 		EnableDatagrams:    true,
+ 		KeepAlivePeriod:    keepAlivePeriod,
+ 		MaxIdleTimeout:     maxIdleTimeout,

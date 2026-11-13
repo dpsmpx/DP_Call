@@ -270,3 +270,18 @@ func TestLivenessRequiresCurrentSessionChallenge(t *testing.T) {
 		t.Fatal("fresh challenge rejected")
 	}
 }
+
+func TestResolveHostHandlesIPFamiliesAndMissingHost(t *testing.T) {
+	for _, host := range []string{"127.0.0.1", "::1"} {
+		ip, err := resolveHost(host)
+		if err != nil || ip != host {
+			t.Fatalf("%s: %s %v", host, ip, err)
+		}
+		if _, err = net.ResolveUDPAddr("udp", net.JoinHostPort(ip, "443")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := resolveHost(""); err == nil {
+		t.Fatal("empty hostname accepted")
+	}
+}

@@ -1,4 +1,4 @@
-# Experimental SFU carrier
+# Experimental service carrier
 
 The adapter in `mobile.go` uses the Telemost/VK guest clients and VP8 frame transport
 from [kulikov0/whitelist-bypass](https://github.com/kulikov0/whitelist-bypass), MIT,
@@ -10,7 +10,10 @@ is shipped without rebuilding. The gomobile linker uses `-checklinkname=0`, as
 required by the pinned anet Android interface-enumeration library on Go 1.23+. Dependency versions and checksums come from the
 pinned upstream go.mod/go.sum; do not replace the pin with a branch or `latest`.
 
-The upstream creates a tunnel to a separate internet gateway. DP Call instead
+The upstream creates a tunnel to a separate internet gateway. `upstream.patch`
+adds the guest initiator role for VK, forces VK media through its own TURN
+servers, verifies TLS certificates, and fixes IPv6 address joining. Telemost
+uses its SFU; VK uses an authenticated two-participant call via the service TURN. DP Call instead
 connects two guest participants directly at the tunnel layer. Each endpoint has a
 loopback-only TURN server whose virtual relay sockets are carried in VP8 frames.
 The app's original libwebrtc engine handles ICE, DTLS, SRTP, Opus, audio devices
@@ -37,7 +40,8 @@ only loopback HTTP is allowed by the experimental network security config.
 
 Local tests cover authenticated signals, malformed input, echo/replay rejection,
 bidirectional TURN allocation/permissions/packets and a full DTLS/SCTP data channel
-through the two virtual TURN servers. Those tests use an in-memory SFU substitute;
+through the two virtual TURN servers. A patched upstream test also verifies
+that the chosen VK initiator offers only after the PC and remote participant exist. Those tests use an in-memory SFU substitute;
 they do not establish that Telemost/VK currently relay two guest streams on a
 particular mobile network. Live room and real Android audio tests remain required.
 

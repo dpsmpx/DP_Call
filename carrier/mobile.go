@@ -2,6 +2,7 @@
 package mobile
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -32,6 +33,7 @@ type Callbacks interface {
 }
 
 type Session struct {
+	first         bool
 	challenge     []byte
 	peerChallenge []byte
 	mu            sync.Mutex
@@ -82,6 +84,7 @@ func NewSession(key []byte, first bool, cb Callbacks) (*Session, error) {
 		return nil, err
 	}
 	s := &Session{cb: cb, aead: aead, receiveAEAD: receiveAEAD, out: make(chan []byte, 256), seen: map[string]bool{}, relays: map[int]*packetConn{}, nextPort: 40000, stop: make(chan struct{})}
+	s.first = first
 	s.localIP = net.ParseIP("198.18.0.1")
 	s.remoteIP = net.ParseIP("198.18.0.2")
 	if !first {
@@ -147,7 +150,7 @@ func (s *Session) run(provider, room string) {
 	}
 	switch provider {
 	case "telemost":
-		j := joiner.NewTelemostHeadlessJoiner(logFn, nil, s, nil, pion.AddTunnelTracks, pion.ReadTrack)
+		j := joiner.NewTelemostHeadlessJoiner(logFn, resolveHost, s, nil, pion.AddTunnelTracks, pion.ReadTrack)
 		j.MarkConfigAcked()
 		j.OnConnected = connected
 		s.mu.Lock()
@@ -160,7 +163,7 @@ func (s *Session) run(provider, room string) {
 		params, _ := json.Marshal(map[string]any{"joinLink": room, "displayName": "DP Call", "vp8Fps": 24, "vp8Batch": 4, "reliable": false})
 		j.RunWithParams(string(params))
 	case "vk":
-		auth, err := joiner.RunVKAuth(room, "DP Call", logFn, s.EmitStatus, nil, nil)
+		auth, err := joiner.RunVKAuth(room, "DP Call", logFn, s.EmitStatus, nil, resolveHost)
 		if err != nil {
 			s.EmitStatus("failed")
 			return
@@ -175,7 +178,8 @@ func (s *Session) run(provider, room string) {
 		params["vp8Fps"] = 24
 		params["vp8Batch"] = 4
 		params["reliable"] = false
-		j := joiner.NewVKHeadlessJoiner(logFn, nil, s, nil, pion.AddTunnelTracks, pion.ReadTrack)
+		j := joiner.NewVKHeadlessJoiner(logFn, resolveHost, s, nil, pion.AddTunnelTracks, pion.ReadTrack)
+		j.SetInitiator(s.first)
 		j.MarkConfigAcked()
 		j.OnConnected = connected
 		s.mu.Lock()
@@ -396,3 +400,28 @@ func (p *packetConn) LocalAddr() net.Addr                { return &net.UDPAddr{I
 func (p *packetConn) SetDeadline(t time.Time) error      { return nil }
 func (p *packetConn) SetReadDeadline(t time.Time) error  { return nil }
 func (p *packetConn) SetWriteDeadline(t time.Time) error { return nil }
+
+// Return a literal IP; all upstream dial sites use net.JoinHostPort for IPv6.
+func resolveHost(host string) (string, error) {
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.String(), nil
+	}
+	if host == "" {
+		return "", errors.New("empty host")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return "", err
+	}
+	for _, addr := range addrs {
+		if addr.IP.To4() != nil {
+			return addr.IP.String(), nil
+		}
+	}
+	if len(addrs) > 0 {
+		return addrs[0].IP.String(), nil
+	}
+	return "", errors.New("no addresses")
+}

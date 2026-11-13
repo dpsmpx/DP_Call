@@ -7,12 +7,15 @@ if [ ! -d "$upstream/.git" ]; then
   mkdir -p "$(dirname "$upstream")"
   git clone --filter=blob:none --no-checkout https://github.com/kulikov0/whitelist-bypass.git "$upstream"
 fi
-git -C "$upstream" checkout --detach "$revision"
+git -C "$upstream" checkout --force --detach "$revision"
 [ "$(git -C "$upstream" rev-parse HEAD)" = "$revision" ]
+git -C "$upstream" apply "$project/carrier/upstream.patch"
+cp "$project/carrier/vk_initiator_test.go.in" "$upstream/relay/pion/headless-joiner-common/dpcall_initiator_test.go"
 mkdir -p "$upstream/dpcallmobile"
 cp "$project"/carrier/*.go "$upstream/dpcallmobile/"
 cd "$upstream"
 go test -race ./dpcallmobile
+go test -race ./relay/pion/headless-joiner-common -run '^TestDPCall'
 if [ "${1:-}" = "test" ]; then exit 0; fi
 go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260508232728-bebd421c7fa8
 go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260508232728-bebd421c7fa8
