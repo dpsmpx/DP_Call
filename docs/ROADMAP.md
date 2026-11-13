@@ -54,10 +54,19 @@
 - Invite button: a direct download link for people who do not have the app yet
 - Permanent `latest/download/DP_Call.apk` link
 
+## Stage 3.4 — v1.3.0 (done)
+- Relay health with benching and spare relays; front-loaded resends; path check (STUN/TURN)
+  with a connection-check dialog
+- Adaptive Opus bitrate, softer receive noise gate, "how well you hear" indicator
+- Scan → Call / Save card, code extraction from messy messages
+- Vendor-skin setup (autostart) and opt-in Always connected mode
+- Tor build: signaling through embedded Tor, released as a second APK
+
 ## Stage 4 — Hardening
 - Security and code audit before the public release (done, see SECURITY.md)
 - Own release signing key (done)
 - Stress tests on real networks, Doze and vendor battery savers
 
 ## Later
-- Optional Tor transport for signaling (maximum privacy mode)
+- Optional relay-only ICE (hide the IP address from the other person, at the cost of TURN
+  dependence)

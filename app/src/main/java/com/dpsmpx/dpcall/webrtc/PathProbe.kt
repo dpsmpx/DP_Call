@@ -98,7 +98,8 @@ object PathProbe {
         var pc: PeerConnection? = null
         var finished = false
 
-        fun finish() {
+        /** @param failed проверка сама не смогла выполниться — о сети это ничего не говорит. */
+        fun finish(failed: Boolean = false) {
             if (finished) return
             finished = true
             try {
@@ -107,6 +108,11 @@ object PathProbe {
                 AppLog.add(TAG, "dispose: $e")
             }
             pc = null
+            // Ни одного адреса, даже локального, — сбор не запустился, о сети судить нельзя.
+            if (failed || candidates.isEmpty()) {
+                _running.value = false
+                return
+            }
             val check = PathCheck.classify(candidates.map { it.sdp to it.serverUrl }, custom?.url, System.currentTimeMillis())
             AppLog.add(TAG, "direct=${check.direct} turn=${check.turn} ownTurn=${check.ownTurn}")
             _result.value = check
@@ -149,19 +155,19 @@ object PathProbe {
                             override fun onCreateSuccess(p0: SessionDescription?) {}
                             override fun onSetSuccess() {}
                             override fun onCreateFailure(p0: String?) {}
-                            override fun onSetFailure(error: String?) = main.post { finish() }.let {}
+                            override fun onSetFailure(error: String?) = main.post { finish(failed = true) }.let {}
                         }, sdp)
                     }
                 }
 
                 override fun onSetSuccess() {}
-                override fun onCreateFailure(error: String?) = main.post { finish() }.let {}
+                override fun onCreateFailure(error: String?) = main.post { finish(failed = true) }.let {}
                 override fun onSetFailure(error: String?) {}
             }, MediaConstraints())
             main.postDelayed({ finish() }, TIMEOUT_MS)
         } catch (e: Throwable) {
             AppLog.add(TAG, "failed: $e")
-            finish()
+            finish(failed = true)
         }
     }
 }

@@ -37,8 +37,14 @@ DP Call не имеет собственных серверов, учётных 
   служебный обмен для установления соединения; они видят ваш IP-адрес. Если прямое
   соединение невозможно, зашифрованный звук идёт через TURN-сервер; расшифровать его он
   не может.
+  Для плашки готовности приложение иногда (при открытии и после смены сети, не чаще раза
+  в 10 минут) спрашивает у тех же серверов адреса без звонка — так же, как при звонке.
 - *Собеседнику* — ваш IP-адрес (это свойство прямого соединения) и звук разговора,
   зашифрованный DTLS-SRTP. Чтобы скрыть IP, используйте VPN.
+
+**Сборка с Tor** (`DP_Call-Tor.apk`): обмен с релеями и проверка обновлений идут через сеть
+Tor — релеи и GitHub видят адрес выхода Tor вместо вашего. К STUN/TURN-серверам и
+собеседнику звук идёт мимо Tor, как описано выше.
 
 **Разрешения**
 
@@ -84,8 +90,15 @@ encrypted with your password. It is saved where you choose; the app never sends 
 - *STUN/TURN servers* (public third-party servers or your own TURN) take part in
   connection setup and can see your IP address. If a direct connection is impossible, the
   encrypted audio is relayed through the TURN server, which cannot decrypt it.
+  For the readiness banner the app occasionally (on opening and after a network change,
+  at most every 10 minutes) asks the same servers for addresses without a call, exactly as
+  a call does.
 - *The other party* learns your IP address (inherent to a direct connection) and receives
   the audio, encrypted with DTLS-SRTP. Use a VPN to hide your IP address.
+
+**Tor build** (`DP_Call-Tor.apk`): relay traffic and the update check go through the Tor
+network, so relays and GitHub see a Tor exit address instead of yours. Audio to STUN/TURN
+servers and to the other party does not go through Tor, as described above.
 
 **Permissions**
 

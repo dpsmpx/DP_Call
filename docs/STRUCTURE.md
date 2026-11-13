@@ -12,6 +12,8 @@ DP_Call/
 │       ├── ui/            # Compose screens
 │       ├── update/        # проверка новой версии в GitHub Releases
 │       └── util/
+│   ├── src/standard/      # обычная сборка: заглушка TorProxy
+│   ├── src/tor/           # сборка с Tor: TorProxy, обёртка TorService (BSD-3)
 │   └── src/test/          # модульные и живые (DPCALL_LIVE_RELAYS=1) тесты
 ├── docs/
 │   ├── USER_GUIDE.md      # руководство пользователя

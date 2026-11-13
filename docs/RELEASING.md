@@ -5,9 +5,12 @@
 Workflow `.github/workflows/build.yml` запускается при каждом push в `main` (и вручную
 кнопкой **Run workflow**):
 
-1. модульные тесты;
-2. релизная сборка `assembleRelease`;
+1. модульные тесты обеих сборок;
+2. релизная сборка `assembleRelease` — обычная (`standard`) и с Tor (`tor`);
 3. публикация APK и `SHA256SUMS.txt` в GitHub Releases.
+
+Сборки отличаются только встроенным Tor; идентификатор приложения, версия и подпись у них
+общие, поэтому одна ставится поверх другой.
 
 Тег и тип релиза определяются по `versionName` в `app/build.gradle.kts`:
 
@@ -29,11 +32,21 @@ Workflow `.github/workflows/build.yml` запускается при каждо�
    приложения узнают о нём сами в течение суток (`UpdateChecker`): сравнивают тег
    последнего выпуска со своей версией и предлагают скачать приложенный к нему APK.
 
-К обычному выпуску прикладываются два одинаковых APK: `DP_Call-v<версия>.apk` и
-`DP_Call.apk`. Второй нужен для постоянной ссылки
-`https://github.com/dpsmpx/DP_Call/releases/latest/download/DP_Call.apk`, которую рассылает
-кнопка «Пригласить». Не переименовывайте его. К pre-release он не прикладывается, чтобы
-ссылка не вела на непроверенную сборку.
+К обычному выпуску прикладываются четыре APK:
+
+| Файл | Что это |
+|---|---|
+| `DP_Call-v<версия>.apk` | обычная сборка |
+| `DP_Call.apk` | она же с постоянным именем |
+| `DP_Call-Tor-v<версия>.apk` | сборка с Tor |
+| `DP_Call-Tor.apk` | она же с постоянным именем |
+
+Постоянные имена нужны для ссылок
+`https://github.com/dpsmpx/DP_Call/releases/latest/download/DP_Call.apk` (её рассылает
+кнопка «Пригласить») и `…/DP_Call-Tor.apk`. Не переименовывайте файлы: проверка
+обновлений в приложении выбирает APK своей сборки по началу имени (`DP_Call-v`,
+`DP_Call-Tor-v`). Постоянные копии к pre-release не прикладываются, чтобы ссылки не вели на
+непроверенную сборку.
 
 Чтобы обновление установилось поверх старой версии, выпуск должен быть подписан тем же
 ключом и иметь больший `versionCode`. Pre-release приложение не предлагает.
@@ -96,11 +109,11 @@ keytool -list -v -keystore dppass-dev.p12 -storetype PKCS12 | grep -E "Alias|SHA
 
 ## Проверка релеев
 
-Список публичных релеев — `RelayPool.DEFAULT_RELAYS`. Перед выпуском стоит убедиться, что
+Список публичных релеев — `RelayPool.DEFAULT_RELAYS`, запасные — `RelayPool.SPARE_RELAYS`. Перед выпуском стоит убедиться, что
 они по-прежнему доставляют вызовы:
 
 ```bash
-DPCALL_LIVE_RELAYS=1 ./gradlew testDebugUnitTest --tests '*Live*' -i | grep LIVE
+DPCALL_LIVE_RELAYS=1 ./gradlew testStandardDebugUnitTest --tests '*Live*' -i | grep LIVE
 ```
 
 ## Минификация
@@ -121,3 +134,16 @@ DPCALL_LIVE_RELAYS=1 ./gradlew testDebugUnitTest --tests '*Live*' -i | grep LIVE
 Версию, которую нужно сначала проверить на устройствах, выпускайте с суффиксом
 (`1.0.1-rc1`): она публикуется как pre-release, и приложение не предлагает её как обновление. После проверки
 уберите суффикс и влейте в `main` — выйдет обычный релиз с тем же `versionCode`.
+
+## Tor
+
+Сборка `tor` берёт из `info.guardianproject:tor-android` только нативную `libtor.so`
+(задача `extractTorNative`), а Java-обёртку `org.torproject.jni.TorService` — исходником из
+sources jar той же версии (`app/src/tor/java/org/torproject/jni/`, лицензия BSD-3 в
+`app/src/tor/TOR-ANDROID-LICENSE`). Классы из AAR не подходят: начиная с 0.4.9.11 они
+собраны под Java 24 и compileSdk 37, которые наш набор инструментов не принимает.
+
+Обновление Tor: поменяйте `TOR_ANDROID_VERSION` в `app/build.gradle.kts`, замените
+`TorService.java` файлом из `tor-android-<версия>-sources.jar` (Maven Central) и версию в
+`org/torproject/jni/BuildConfig.java`. Затем соберите `assembleTorRelease` и проверьте на
+телефоне, что плашка доходит до «На связи через Tor».

@@ -1,0 +1,6 @@
+* Tor build: DP_Call-Tor.apk — relays do not see your IP
+* Connection check: the banner warns when the network will not let a call through
+* More reliable call delivery: spare relays, faster resends in the first seconds
+* Audio adapts to the connection; softer noise gate; see how well you hear the other person
+* Scanned QR: Call or Save right away
+* Setup hints for Xiaomi, Huawei, Samsung and others, plus an Always connected mode

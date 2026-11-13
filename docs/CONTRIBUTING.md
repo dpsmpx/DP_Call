@@ -9,17 +9,18 @@
 ## Build and test
 
 ```bash
-./gradlew assembleDebug
-./gradlew testDebugUnitTest
-./gradlew lintDebug
+./gradlew assembleStandardDebug          # or assembleTorDebug (embedded Tor)
+./gradlew testStandardDebugUnitTest testTorDebugUnitTest
+./gradlew lintStandardDebug
 ```
 
-JDK 17, Android SDK 35; minSdk 26, targetSdk 35.
+JDK 17, Android SDK 35; minSdk 26, targetSdk 35. Two product flavors: `standard` and `tor`
+(the same app with embedded Tor for signaling, see [RELEASING.md](RELEASING.md#tor)).
 
 Tests that talk to the real public relays are opt-in:
 
 ```bash
-DPCALL_LIVE_RELAYS=1 ./gradlew testDebugUnitTest --tests '*Live*' -i | grep LIVE
+DPCALL_LIVE_RELAYS=1 ./gradlew testStandardDebugUnitTest --tests '*Live*' -i | grep LIVE
 ```
 
 ## Where things live
