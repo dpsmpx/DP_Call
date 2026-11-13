@@ -1,0 +1,1 @@
+Compact signed invitations and answers; SMS exchange with segment count. Relay rotation and Tor bridge startup fixes. Separate Experimental APK: calls through Telemost/VK guest rooms, explicitly chosen by both peers. Operation on whitelist-only networks is not yet verified.

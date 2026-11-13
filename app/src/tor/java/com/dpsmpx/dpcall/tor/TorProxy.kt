@@ -63,7 +63,12 @@ object TorProxy {
         val app = context.applicationContext
         _state.value = TorState.STARTING
         startedAt = System.currentTimeMillis()
-        val bridges = configureBridges(app)
+        val bridges = try { configureBridges(app) } catch (e: Exception) {
+            AppLog.add(TAG, "bridge configuration failed")
+            stopTransports()
+            _state.value = TorState.FAILED
+            return
+        }
         timeoutMs = if (bridges > 0) START_TIMEOUT_BRIDGES_MS else START_TIMEOUT_MS
         AppLog.add(TAG, "starting, bridges=$bridges")
         val conn = object : ServiceConnection {
@@ -87,18 +92,19 @@ object TorProxy {
         }
         if (!bound) {
             connection = null
+            stopTransports()
             _state.value = TorState.FAILED
         }
     }
 
     @Synchronized
     fun stop(context: Context) {
-        val conn = connection ?: return
+        val conn = connection
         connection = null
         poll?.cancel(false)
         poll = null
         try {
-            context.applicationContext.unbindService(conn)
+            if (conn != null) context.applicationContext.unbindService(conn)
         } catch (e: Exception) {
             Log.w(TAG, "unbind failed", e)
         }
@@ -171,6 +177,7 @@ object TorProxy {
             TorBridges.Mode.NONE -> emptyList()
         }
         stopTransports()
+        require(settings.torBridgesMode.value == TorBridges.Mode.NONE || bridges.isNotEmpty()) { "No valid bridges" }
         val ports = mutableMapOf<String, Long>()
         if (bridges.isNotEmpty()) {
             val controller = transports ?: IPtProxy.newController(
@@ -189,11 +196,8 @@ object TorProxy {
                 }
             }
         }
-        try {
-            TorService.getTorrc(context).apply { parentFile?.mkdirs() }.writeText(TorBridges.torrc(bridges, ports))
-        } catch (e: Exception) {
-            AppLog.add(TAG, "torrc not written: $e")
-        }
+        require(bridges.isEmpty() || ports.isNotEmpty()) { "No bridge transport started" }
+        TorService.getTorrc(context).apply { parentFile?.mkdirs() }.writeText(TorBridges.torrc(bridges, ports))
         return if (ports.isEmpty()) 0 else bridges.count { ports.containsKey(it.substringBefore(' ')) }
     }
 

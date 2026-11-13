@@ -95,6 +95,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.dpsmpx.dpcall.call.CallManager
+import com.dpsmpx.dpcall.signaling.SignalCodec
+import android.telephony.SmsMessage
 import com.dpsmpx.dpcall.data.ContactsRepository
 import com.dpsmpx.dpcall.domain.Contact
 import com.dpsmpx.dpcall.util.CodeValidator
@@ -516,6 +518,36 @@ private fun SendButtons(signal: String, what: String) {
             Text(stringResource(R.string.copy), maxLines = 1)
         }
     }
+    var confirmSms by remember { mutableStateOf(false) }
+    var smsBody by remember { mutableStateOf("") }
+    var smsParts by remember { mutableStateOf(0) }
+    TextButton(onClick = {
+        val current = CallManager.signalForSharing(compact = true) ?: SignalCodec.compact(signal)
+        smsBody = context.getString(R.string.sms_signal_body, current)
+        smsParts = SmsMessage.calculateLength(smsBody, false)[0]
+        confirmSms = true
+    }) {
+        Icon(Icons.Default.Sms, null, Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(stringResource(R.string.sms_signal_send))
+    }
+    if (confirmSms) AlertDialog(
+        onDismissRequest = { confirmSms = false },
+        title = { Text(stringResource(R.string.sms_signal_send)) },
+        text = { Text(stringResource(R.string.sms_signal_confirm, smsParts)) },
+        confirmButton = {
+            TextButton(onClick = {
+                confirmSms = false
+                try {
+                    context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:"))
+                        .putExtra("sms_body", smsBody).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (e: Exception) {
+                    shareText(context, smsBody, context.getString(R.string.sms_signal_send))
+                }
+            }) { Text(stringResource(R.string.send)) }
+        },
+        dismissButton = { TextButton(onClick = { confirmSms = false }) { Text(stringResource(R.string.close)) } }
+    )
 }
 
 @Composable

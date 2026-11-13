@@ -62,6 +62,11 @@
 - Vendor-skin setup (autostart) and opt-in Always connected mode
 - Tor build: signaling through embedded Tor, released as a second APK
 
+## Stage 3.5 — v1.3.1
+- Lossless compact signaling, signed SMS offer/answer exchange
+- Separate experimental Telemost/VK guest-room carrier (local TURN bridge)
+- Pending device validation: two-phone SFU calls and Russian whitelist networks
+
 ## Stage 4 — Hardening
 - Security and code audit before the public release (done, see SECURITY.md)
 - Own release signing key (done)

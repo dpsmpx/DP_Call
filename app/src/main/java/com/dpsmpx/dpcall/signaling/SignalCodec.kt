@@ -14,7 +14,7 @@ import java.util.zip.GZIPOutputStream
 object SignalCodec {
 
     private const val PREFIX = "DPCALL1"
-    private const val VERSION = 1
+    private const val COMPACT_PREFIX = "DPCALL2"
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -37,17 +37,19 @@ object SignalCodec {
      * @param secret секретный ключ отправителя: если задан, сигнал подписывается.
      *   payload.identity должен быть кодом, соответствующим этому ключу.
      */
-    fun encode(type: SignalType, payload: SdpPayload, secret: ByteArray? = null): String {
+    fun encode(type: SignalType, payload: SdpPayload, secret: ByteArray? = null, compact: Boolean = false): String {
         val signed = if (secret != null) {
             payload.copy(sig = with(RelayCrypto) { signSchnorr(signedDigest(type, payload), secret).toHex() })
         } else {
             payload
         }
-        val jsonBytes = json.encodeToString(signed).toByteArray(Charsets.UTF_8)
-        val compressed = gzip(jsonBytes)
+        val compressed = if (compact) CompactSignal.pack(signed) else gzip(json.encodeToString(signed).toByteArray(Charsets.UTF_8))
         val b64 = Base64.getUrlEncoder().withoutPadding().encodeToString(compressed)
-        return "$PREFIX.${type.code}.$b64"
+        return "${if (compact) COMPACT_PREFIX else PREFIX}.${type.code}.$b64"
     }
+
+    /** Repack without changing SDP, timestamps or the original signature. */
+    fun compact(raw: String): String = decode(raw).getOrThrow().let { encode(it.type, it.payload, compact = true) }
 
     fun decode(raw: String): Result<DecodedSignal> {
         return try {
@@ -62,7 +64,7 @@ object SignalCodec {
 
             val (prefix, typeCode, payloadB64) = parts
 
-            if (prefix != PREFIX) {
+            if (prefix != PREFIX && prefix != COMPACT_PREFIX) {
                 if (prefix.startsWith("DPCALL") && prefix != PREFIX) {
                     return Result.failure(
                         SignalException("Unsupported format version: $prefix")
@@ -71,7 +73,7 @@ object SignalCodec {
                 return Result.failure(SignalException("Unknown prefix"))
             }
 
-            val type = SignalType.fromCode(typeCode.firstOrNull() ?: ' ')
+            val type = SignalType.fromCode(typeCode.singleOrNull() ?: ' ')
                 ?: return Result.failure(SignalException("Unknown message type: $typeCode"))
 
             if (payloadB64.isBlank()) {
@@ -79,10 +81,8 @@ object SignalCodec {
             }
 
             val compressed = Base64.getUrlDecoder().decode(payloadB64.trimEnd('='))
-            val jsonBytes = gunzip(compressed)
-            val payload = json.decodeFromString<SdpPayload>(
-                jsonBytes.toString(Charsets.UTF_8)
-            )
+            val payload = if (prefix == COMPACT_PREFIX) CompactSignal.unpack(compressed) else
+                json.decodeFromString<SdpPayload>(gunzip(compressed).toString(Charsets.UTF_8))
 
             if (payload.sdp.isBlank()) {
                 return Result.failure(SignalException("SDP is missing"))

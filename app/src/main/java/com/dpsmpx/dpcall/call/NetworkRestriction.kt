@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -71,6 +72,7 @@ object NetworkRestriction {
             delay(OFFLINE_GRACE_MS)
             while (isActive) {
                 val result = check(app)
+                coroutineContext.ensureActive()
                 if (result != _state.value) AppLog.add(TAG, "restriction: $result")
                 _state.value = result
                 delay(RECHECK_MS)

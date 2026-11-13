@@ -1,0 +1,57 @@
+package joiner
+
+import (
+	"github.com/kulikov0/headless-client/webrtc"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+type silentStatus struct{}
+
+func (silentStatus) EmitStatus(string)      {}
+func (silentStatus) EmitStatusError(string) {}
+func TestDPCallGuestInitiatorOffersOnlyWhenReady(t *testing.T) {
+	j := NewVKHeadlessJoiner(func(string, ...any) {}, nil, silentStatus{}, nil, nil, nil)
+	j.SetInitiator(true)
+	j.maybeOffer() // No PC yet.
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pc.Close()
+	j.pc = pc
+	if _, err = pc.CreateDataChannel("dpcall", nil); err != nil {
+		t.Fatal(err)
+	}
+	j.maybeOffer()
+	if pc.LocalDescription() != nil {
+		t.Fatal("offered without peer")
+	}
+	j.SetInitiator(false)
+	j.onRegisteredPeer(123)
+	if pc.LocalDescription() != nil {
+		t.Fatal("answerer initiated")
+	}
+	j.SetInitiator(true)
+	j.maybeOffer()
+	if pc.LocalDescription() == nil || pc.LocalDescription().Type != webrtc.SDPTypeOffer {
+		t.Fatal("initiator did not offer")
+	}
+	before := pc.LocalDescription().SDP
+	j.maybeOffer()
+	if pc.LocalDescription().SDP != before {
+		t.Fatal("duplicate registration renegotiated")
+	}
+}
+
+func TestDPCallTelemostRejectsUntrustedTLS(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) }))
+	defer server.Close()
+	j := NewTelemostHeadlessJoiner(func(string, ...any) {}, nil, silentStatus{}, nil, nil, nil)
+	response, err := j.makeHTTPClient().Get(server.URL)
+	if err == nil {
+		response.Body.Close()
+		t.Fatal("untrusted TLS certificate accepted")
+	}
+}

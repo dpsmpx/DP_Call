@@ -123,3 +123,15 @@ DP Call has no permission to install apps.
 **The error log** is shared only by you, manually, with the “Share the error log” button.
 
 Questions: <https://github.com/dpsmpx/DP_Call/issues>.
+
+## Experimental Telemost / VK carrier (1.3.1+)
+
+The separate Experimental APK uses an explicitly chosen third-party guest room
+for signaling and encrypted voice packets. The service sees participants, IP
+addresses, timing and traffic volume; DP Call retains end-to-end DTLS-SRTP and
+adds pair-key authenticated encryption around the carrier packets. No automatic
+public relay, STUN/TURN fallback or update check runs in this build. Room links
+and guest authentication credentials are not written to the app log. Session
+configuration is kept in memory. See [setup and limitations](EXPERIMENTAL_TRANSPORT.md)
+and [implementation/licensing](../carrier/UPSTREAM.md). SMS signal exchange is
+signed, but SMS contents (including ICE addresses) are not encrypted.

@@ -20,3 +20,8 @@ out/
 /app/release
 *.log
 *.hprof
+
+.build/
+carrier/mobile.aar
+carrier/mobile-sources.jar
+app/src/experimental/assets/carrier-licenses.txt

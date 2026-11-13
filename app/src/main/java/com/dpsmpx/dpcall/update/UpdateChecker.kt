@@ -36,7 +36,8 @@ object UpdateChecker {
      * Прямая ссылка на APK последнего выпуска. Работает, потому что к каждому выпуску
      * прикладывается копия APK с постоянным именем (см. .github/workflows/build.yml).
      */
-    const val DIRECT_DOWNLOAD = "https://github.com/$REPOSITORY/releases/latest/download/DP_Call.apk"
+    val DIRECT_DOWNLOAD = "https://github.com/$REPOSITORY/releases/latest/download/" +
+        if (com.dpsmpx.dpcall.BuildConfig.CARRIER) "DP_Call-Experimental.apk" else "DP_Call.apk"
     private const val LATEST_RELEASE_API = "https://api.github.com/repos/$REPOSITORY/releases/latest"
     /** Скачивать разрешаем только файлы выпусков этого репозитория. */
     private const val DOWNLOAD_PREFIX = "https://github.com/$REPOSITORY/releases/"
@@ -59,6 +60,7 @@ object UpdateChecker {
 
     /** Плановая проверка: молча пропускается, если выключена или с прошлой прошло меньше суток. */
     suspend fun checkIfDue(context: Context) {
+        if (com.dpsmpx.dpcall.carrier.CarrierTransport.available) return
         val settings = AppSettings.get(context)
         if (!settings.updateCheck.value) return
         val elapsed = System.currentTimeMillis() - settings.lastUpdateCheckAt
@@ -68,6 +70,7 @@ object UpdateChecker {
 
     /** Проверка прямо сейчас. @param manual по кнопке в настройках: напомнить и о скрытой версии. */
     suspend fun check(context: Context, manual: Boolean = true): Result = mutex.withLock {
+        if (com.dpsmpx.dpcall.carrier.CarrierTransport.available) return Result.UP_TO_DATE
         val settings = AppSettings.get(context)
         // В режиме Tor GitHub тоже спрашиваем через Tor; пока он не готов — не спрашиваем вовсе.
         val viaTor = TorProxy.available && settings.torSignaling.value

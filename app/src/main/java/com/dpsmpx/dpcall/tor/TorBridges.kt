@@ -15,7 +15,7 @@ object TorBridges {
 
     /** Годные строки мостов из произвольного текста: по одной на строку, без дублей. */
     fun parse(text: String): List<String> = text.lineSequence()
-        .map { it.trim().removePrefix("Bridge ").removePrefix("bridge ").trim() }
+        .map { it.trim().removePrefix("Bridge ").removePrefix("bridge ").trim().replace(Regex("[\\t ]+"), " ") }
         .filter { it.isNotEmpty() && !it.startsWith("#") }
         .filter { line ->
             val parts = line.split(Regex("\\s+"))

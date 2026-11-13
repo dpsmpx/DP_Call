@@ -30,6 +30,8 @@ import com.dpsmpx.dpcall.ui.components.shareText
 import com.dpsmpx.dpcall.util.NetworkTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.LaunchedEffect
@@ -56,6 +58,8 @@ fun ConnectionCheckDialog(relayStatus: RelayStatus, path: PathCheck?, onDismiss:
         return
     }
     val running by PathProbe.running.collectAsStateWithLifecycle()
+    val restriction by NetworkRestriction.state.collectAsStateWithLifecycle()
+    val call by CallManager.uiState.collectAsStateWithLifecycle()
     val spares = remember(relayStatus) { RelaySignaling.relayStates().count { it.spare && it.active } }
     val good = Color(0xFF2E9E5B)
     val bad = MaterialTheme.colorScheme.error
@@ -95,7 +99,6 @@ fun ConnectionCheckDialog(relayStatus: RelayStatus, path: PathCheck?, onDismiss:
                             if (works) good else bad
                         )
                     }
-                    val restriction = NetworkRestriction.state.value
                     val advice = when {
                         !relayStatus.online && restriction == Restriction.MOBILE_WHITELIST -> R.string.check_advice_whitelist
                         !relayStatus.online && restriction == Restriction.RELAYS_BLOCKED -> R.string.check_advice_relays_blocked
@@ -127,7 +130,7 @@ fun ConnectionCheckDialog(relayStatus: RelayStatus, path: PathCheck?, onDismiss:
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) } },
         dismissButton = {
-            val busy = CallManager.uiState.value.state != CallState.IDLE
+            val busy = call.state != CallState.IDLE
             TextButton(onClick = { PathProbe.run(context, busy) }, enabled = !running && !busy) {
                 Text(stringResource(R.string.check_again))
             }
@@ -151,12 +154,13 @@ private fun CheckRow(label: String, value: String, color: Color) {
 @Composable
 private fun NetworkTestDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val lines = remember { mutableStateListOf<NetworkTest.Line>() }
     var report by remember { mutableStateOf<String?>(null) }
     val good = Color(0xFF2E9E5B)
     LaunchedEffect(Unit) {
         report = withContext(Dispatchers.IO) {
-            NetworkTest.run(context) { line -> lines += line }
+            NetworkTest.run(context) { line -> scope.launch { lines += line } }
         }
     }
     AlertDialog(

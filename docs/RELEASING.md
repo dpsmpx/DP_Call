@@ -153,3 +153,16 @@ sources jar той же версии (`app/src/tor/java/org/torproject/jni/`, л
 `TorService.java` файлом из `tor-android-<версия>-sources.jar` (Maven Central) и версию в
 `org/torproject/jni/BuildConfig.java`. Затем соберите `assembleTorRelease` и проверьте на
 телефоне, что плашка доходит до «На связи через Tor».
+
+## Experimental APK (1.3.1+)
+
+Workflow дополнительно собирает `DP_Call-Experimental-v<версия>.apk` из flavor
+`experimental`. У него applicationId `com.dpsmpx.dpcall.experimental`, отдельные
+ключи и контакты; он не заменяет стандартный или Tor APK. Постоянная копия `DP_Call-Experimental.apk` используется ссылкой приглашения
+этой сборки. Автоматическое обновление экспериментальной сборки отключено.
+
+Перед Gradle workflow запускает `carrier/build.sh`: закреплённые MIT-исходники,
+Go race tests, gomobile AAR для ARM и ARM64. Затем тесты и lint всех трёх вариантов
+и `assembleRelease`. PR собирается с публичным тестовым ключом; после слияния в
+main — с ключом из Secrets и публикацией релиза. PR не публикует релиз.
+[Требования и архитектура адаптера](../carrier/UPSTREAM.md).
