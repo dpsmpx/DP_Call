@@ -366,6 +366,11 @@ class RelayPool(
             }
         }
 
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            webSocket.close(code, reason)
+            onLost(webSocket)
+        }
+
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = onLost(webSocket)
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {

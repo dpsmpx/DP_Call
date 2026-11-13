@@ -217,7 +217,9 @@ fun HomeScreen(
                 ) {
                     item(key = "status") {
                         if (com.dpsmpx.dpcall.carrier.CarrierTransport.available) {
-                            com.dpsmpx.dpcall.carrier.CarrierPanel()
+                            com.dpsmpx.dpcall.carrier.CarrierPanel { code ->
+                                onCall(state.contacts.firstOrNull { it.code == code } ?: Contact(name = code.take(5), code = code))
+                            }
                         } else {
                             ReadinessBanner(readiness, pathCheck, relayStatus.tor, restriction) {
                                 when (readiness) {
@@ -666,7 +668,8 @@ private fun SettingsDialog(relayStatus: RelayStatus, onManualInvite: () -> Unit,
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    if (relayStatus.online) stringResource(R.string.relays_connected, relayStatus.connected, relayStatus.total)
+                    if (com.dpsmpx.dpcall.carrier.CarrierTransport.available) stringResource(R.string.carrier_title)
+                    else if (relayStatus.online) stringResource(R.string.relays_connected, relayStatus.connected, relayStatus.total)
                     else stringResource(R.string.relays_offline),
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (relayStatus.online) OnlineGreen else MaterialTheme.colorScheme.error
@@ -721,41 +724,43 @@ private fun SettingsDialog(relayStatus: RelayStatus, onManualInvite: () -> Unit,
                     checked = contactsOnly,
                     onChange = { settings.setContactsOnly(it) }
                 )
-                SettingRow(
-                    title = stringResource(R.string.setting_missed_notices),
-                    description = stringResource(R.string.setting_missed_notices_desc),
-                    checked = missedNotices,
-                    onChange = {
-                        settings.setMissedNotices(it)
-                        // Подписка на отметки задаётся при подключении к релеям.
-                        RelaySignaling.restart(context)
-                    }
-                )
-                SettingRow(
-                    title = stringResource(R.string.setting_update_check),
-                    description = stringResource(
-                        R.string.setting_update_check_desc, UpdateChecker.installedVersion(context)
-                    ),
-                    checked = updateCheck,
-                    onChange = { settings.setUpdateCheck(it) }
-                )
-                TextButton(
-                    enabled = !checking,
-                    onClick = {
-                        checking = true
-                        scope.launch {
-                            val result = UpdateChecker.check(context)
-                            checking = false
-                            when (result) {
-                                // О найденной версии скажет плашка на главном экране.
-                                UpdateChecker.Result.UPDATE_AVAILABLE -> onDismiss()
-                                UpdateChecker.Result.UP_TO_DATE -> Toast.makeText(context, upToDate, Toast.LENGTH_SHORT).show()
-                                UpdateChecker.Result.FAILED -> Toast.makeText(context, checkFailed, Toast.LENGTH_SHORT).show()
-                            }
+                if (!com.dpsmpx.dpcall.carrier.CarrierTransport.available) {
+                    SettingRow(
+                        title = stringResource(R.string.setting_missed_notices),
+                        description = stringResource(R.string.setting_missed_notices_desc),
+                        checked = missedNotices,
+                        onChange = {
+                            settings.setMissedNotices(it)
+                            // Подписка на отметки задаётся при подключении к релеям.
+                            RelaySignaling.restart(context)
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text(stringResource(if (checking) R.string.update_checking else R.string.update_check_now)) }
+                    )
+                    SettingRow(
+                        title = stringResource(R.string.setting_update_check),
+                        description = stringResource(
+                            R.string.setting_update_check_desc, UpdateChecker.installedVersion(context)
+                        ),
+                        checked = updateCheck,
+                        onChange = { settings.setUpdateCheck(it) }
+                    )
+                    TextButton(
+                        enabled = !checking,
+                        onClick = {
+                            checking = true
+                            scope.launch {
+                                val result = UpdateChecker.check(context)
+                                checking = false
+                                when (result) {
+                                    // О найденной версии скажет плашка на главном экране.
+                                    UpdateChecker.Result.UPDATE_AVAILABLE -> onDismiss()
+                                    UpdateChecker.Result.UP_TO_DATE -> Toast.makeText(context, upToDate, Toast.LENGTH_SHORT).show()
+                                    UpdateChecker.Result.FAILED -> Toast.makeText(context, checkFailed, Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(stringResource(if (checking) R.string.update_checking else R.string.update_check_now)) }
+                }
                 AdvancedSettings(onManualInvite = onManualInvite)
             }
         },

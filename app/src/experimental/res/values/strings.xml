@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">DP Call Experimental</string>
+    <string name="share_target_label">DP Call Experimental</string>
 </resources>

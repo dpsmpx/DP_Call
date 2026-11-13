@@ -68,7 +68,7 @@ jobs:
           key: carrier-android29-go1261-${{ hashFiles('carrier/*.go', 'carrier/build.sh', 'carrier/UPSTREAM-LICENSE') }}
 
       - name: Unit tests and lint
-        run: ./gradlew --no-daemon testStandardDebugUnitTest testTorDebugUnitTest testExperimentalDebugUnitTest lintStandardDebug lintTorDebug lintExperimentalDebug
+        run: ./gradlew --no-daemon --continue testStandardDebugUnitTest testTorDebugUnitTest testExperimentalDebugUnitTest lintStandardDebug lintTorDebug lintExperimentalDebug
 
       - name: Test reports
         if: always()
@@ -138,6 +138,7 @@ jobs:
           if [ "$prerelease" = "false" ]; then
             cp "$standard" dist/DP_Call.apk
             cp "$tor" dist/DP_Call-Tor.apk
+            cp app/build/outputs/apk/experimental/release/app-experimental-release.apk dist/DP_Call-Experimental.apk
           fi
           (cd dist && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt)
           apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)

@@ -20,6 +20,7 @@ class RelayRotationTest {
             listOf(listOf("p", "inbox")), "next-body")
         var old: WebSocket? = null
         server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, reason) }
             override fun onOpen(webSocket: WebSocket, response: Response) { old = webSocket }
             override fun onMessage(webSocket: WebSocket, text: String) {
                 // Handshake + this response crosses the rotation threshold.
@@ -27,6 +28,7 @@ class RelayRotationTest {
             }
         }))
         server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, reason) }
             override fun onMessage(webSocket: WebSocket, text: String) {
                 val message = "[\"EVENT\",\"dpcall\",${event.toJson()}]"
                 old!!.send(message)

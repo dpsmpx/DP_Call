@@ -158,8 +158,8 @@ sources jar той же версии (`app/src/tor/java/org/torproject/jni/`, л
 
 Workflow дополнительно собирает `DP_Call-Experimental-v<версия>.apk` из flavor
 `experimental`. У него applicationId `com.dpsmpx.dpcall.experimental`, отдельные
-ключи и контакты; он не заменяет стандартный или Tor APK. Имя постоянного файла
-не публикуется, автоматическое обновление этой сборки отключено.
+ключи и контакты; он не заменяет стандартный или Tor APK. Постоянная копия `DP_Call-Experimental.apk` используется ссылкой приглашения
+этой сборки. Автоматическое обновление экспериментальной сборки отключено.
 
 Перед Gradle workflow запускает `carrier/build.sh`: закреплённые MIT-исходники,
 Go race tests, gomobile AAR для ARM и ARM64. Затем тесты и lint всех трёх вариантов

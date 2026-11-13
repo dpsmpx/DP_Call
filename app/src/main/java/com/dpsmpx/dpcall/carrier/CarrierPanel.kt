@@ -17,7 +17,7 @@ import com.dpsmpx.dpcall.util.CodeValidator
 import com.dpsmpx.dpcall.webrtc.CallState
 
 @Composable
-fun CarrierPanel() {
+fun CarrierPanel(onCall: (String) -> Unit) {
     val context = LocalContext.current
     val status by CarrierTransport.status.collectAsStateWithLifecycle()
     val call by CallManager.uiState.collectAsStateWithLifecycle()
@@ -25,7 +25,7 @@ fun CarrierPanel() {
     var peer by remember { mutableStateOf("") }
     var accepted by remember { mutableStateOf(false) }
     val busy = call.state.isActive
-    val normalizedPeer = CodeValidator.normalize(peer)
+    val normalizedPeer = CodeValidator.extract(peer) ?: CodeValidator.normalize(peer)
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.carrier_title), style = MaterialTheme.typography.titleMedium)
@@ -55,7 +55,7 @@ fun CarrierPanel() {
                         .putExtra("url", status.captchaUrl))
                 }) { Text(stringResource(R.string.carrier_captcha)) }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { CallManager.startOutgoing("", status.peerCode) }, enabled = !busy && CarrierTransport.ready) {
+                    Button(onClick = { onCall(status.peerCode) }, enabled = !busy && CarrierTransport.ready) {
                         Text(stringResource(R.string.call))
                     }
                     TextButton(onClick = { CarrierTransport.disconnect() }, enabled = !busy) { Text(stringResource(R.string.carrier_disconnect)) }
