@@ -47,7 +47,7 @@ notices() {
   cp "$project/carrier/UPSTREAM-LICENSE" "$output"
   go list -deps -f '{{if .Module}}{{.Module.Dir}}{{end}}' "$@" | sort -u | while IFS= read -r module; do
     [ -n "$module" ] || continue
-    for notice in "$module"/LICENSE "$module"/LICENSE.txt "$module"/LICENSE.md "$module"/COPYING "$module"/LICENSE-3RD-PARTY.txt; do
+    for notice in "$module"/LICENSE* "$module"/COPYING* "$module"/NOTICE* "$module"/COPYRIGHT*; do
       if [ -f "$notice" ]; then
         printf '\n\n%s\n' "$(basename "$module")" >> "$output"
         cat "$notice" >> "$output"

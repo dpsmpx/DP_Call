@@ -48,7 +48,8 @@ graphs and start/stop an actual loopback obfs4 listener. Neither starts a bridge
 connection on the internet during these tests.
 
 Our adapter and the guest client are MIT licensed. IPtProxy's wrapper is MIT;
-its dependencies include GPL-3.0 Lyrebird and BSD Snowflake. The distributed Tor
+its dependencies include Lyrebird transports under GPL-3.0 (alongside its BSD
+code) and BSD Snowflake. The distributed Tor
 binary therefore includes components under additional licenses. License notices
 are generated into each flavor's `assets/carrier-licenses.txt`. GitHub releases
 include `DP_Call-native-sources.tar.gz` with patched guest sources, adapter,

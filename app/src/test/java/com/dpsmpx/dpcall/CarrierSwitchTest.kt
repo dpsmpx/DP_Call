@@ -1,5 +1,6 @@
 package com.dpsmpx.dpcall
 
+import android.app.Application
 import android.content.Context
 import com.dpsmpx.dpcall.carrier.CarrierBackend
 import com.dpsmpx.dpcall.carrier.CarrierTransport
@@ -13,11 +14,13 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
 import org.robolectric.Shadows.shadowOf
 import android.os.Looper
 import java.util.concurrent.CopyOnWriteArrayList
 
 @RunWith(RobolectricTestRunner::class)
+@Config(application = Application::class, sdk = [30])
 class CarrierSwitchTest {
     @Test
     fun roomFailureRetryAndLeaveDoNotMixSignalingSessionsOrReplaceIdentity() {
