@@ -1,4 +1,4 @@
-# Experimental service carrier
+# Optional service carrier and Tor native module
 
 The adapter in `mobile.go` uses the Telemost/VK guest clients and VP8 frame transport
 from [kulikov0/whitelist-bypass](https://github.com/kulikov0/whitelist-bypass), MIT,
@@ -30,13 +30,31 @@ independent end-to-end DTLS-SRTP encryption. Fresh random challenge/response hea
 so an old session’s recorded frames cannot be reused after reconnect. The selected peer must be present; the room
 itself is not treated as proof of peer connectivity.
 
-Only the Experimental APK includes this module. Its application ID is
-`com.dpsmpx.dpcall.experimental`, so its keys/contacts are separate. Public relays,
-public ICE discovery, automatic update checks and ordinary TURN fallback are
-not started in this APK. The user explicitly enters a room, a peer identity and
-accepts the service disclosure each session. SFU connection failures never turn
-into a direct call. Captcha UI is restricted to the in-process VK guest flow;
-only loopback HTTP is allowed by the experimental network security config.
+Both standard and Tor APKs include the optional carrier. It is off by default,
+uses the existing app identity and contacts, and does not persist room selection.
+Public relays, public ICE discovery, automatic update checks and ordinary TURN
+fallback are paused while selected. Leaving restores normal signaling and the
+previous Tor preference. Tor does not carry the room connection: the service sees
+the device IP. Failures stay in room mode. Captcha UI is restricted to the
+in-process VK guest flow; only loopback HTTP is permitted by network security config.
+
+Tor also binds [IPtProxy 5.7.0](https://github.com/tladesignz/IPtProxy/tree/46552b8422a200e3e69aa3686b6278be945138a5),
+pinned to `46552b8422a200e3e69aa3686b6278be945138a5`, with its DNSTT submodule
+`f1b9b97a269f83bad41d2ceef291b4d2c161cd11`. `tor.mod`/`tor.sum` select the shared
+dependency graph. The standard APK has no IPtProxy dependency. The Tor APK binds
+both Go packages into ONE AAR/runtime (`libgojni.so`, `go.Seq`), avoiding duplicate
+Java classes and a native-library collision. Tests rerun the carrier with both
+graphs and start/stop an actual loopback obfs4 listener. Neither starts a bridge
+connection on the internet during these tests.
+
+Our adapter and the guest client are MIT licensed. IPtProxy's wrapper is MIT;
+its dependencies include GPL-3.0 Lyrebird and BSD Snowflake. The distributed Tor
+binary therefore includes components under additional licenses. License notices
+are generated into each flavor's `assets/carrier-licenses.txt`. GitHub releases
+include `DP_Call-native-sources.tar.gz` with patched guest sources, adapter,
+pinned IPtProxy/DNSTT sources, Go module checksums and vendored Tor dependencies.
+The root project's MIT notice describes our own code, not exclusive licensing
+of every third-party binary. Service API permission is separate from source licensing.
 
 Local tests cover authenticated signals, malformed input, echo/replay rejection,
 bidirectional TURN allocation/permissions/packets and a full DTLS/SCTP data channel
@@ -55,3 +73,21 @@ builds the AAR before Gradle tests and all release APKs. For local adapter tests
 The upstream transport's private SFU protocols may change. Update the pin only
 after reviewing the diff and rerunning local tests plus real two-phone calls on
 both carriers. No success claim about Russian whitelists follows from CI.
+
+## Rebuilding the source archive
+
+Use Go 1.26.1, Java 17, Android SDK and NDK 29.0.14206865. Install the pinned
+`gomobile` and `gobind` version `v0.0.0-20260908204917-8b95e45f8d3e` and put
+GOPATH/bin on PATH. In the archive's `carrier-upstream` directory, set
+ANDROID_NDK_HOME and `CGO_LDFLAGS=-Wl,-z,max-page-size=16384`, then run:
+
+```sh
+export GOFLAGS="-mod=vendor -modfile=$PWD/tor.mod"
+gomobile bind -trimpath -ldflags="-s -w -checklinkname=0" \
+  -target=android/arm,android/arm64 -androidapi 26 -javapkg org.dpcall \
+  -o mobile-tor.aar ./dpcallmobile github.com/tladesignz/IPtProxy.git
+```
+
+The standard graph remains in go.mod/go.sum; unset GOFLAGS, fetch its pinned
+modules with `-mod=readonly` and bind only ./dpcallmobile to rebuild mobile.aar.
+The full Android app and build driver are in the matching DP Call Git tag.

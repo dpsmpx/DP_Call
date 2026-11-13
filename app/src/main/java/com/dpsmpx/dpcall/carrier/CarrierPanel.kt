@@ -30,6 +30,7 @@ fun CarrierPanel(onCall: (String) -> Unit) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.carrier_title), style = MaterialTheme.typography.titleMedium)
             Text(stringResource(R.string.carrier_disclosure), style = MaterialTheme.typography.bodySmall)
+            if (com.dpsmpx.dpcall.BuildConfig.TOR) Text(stringResource(R.string.carrier_tor_disclosure), style = MaterialTheme.typography.bodySmall)
             Text(stringResource(when (status.phase) {
                 "off" -> R.string.carrier_off
                 "failed" -> R.string.carrier_failed
@@ -58,8 +59,10 @@ fun CarrierPanel(onCall: (String) -> Unit) {
                     Button(onClick = { onCall(status.peerCode) }, enabled = !busy && CarrierTransport.ready) {
                         Text(stringResource(R.string.call))
                     }
-                    TextButton(onClick = { CarrierTransport.disconnect() }, enabled = !busy) { Text(stringResource(R.string.carrier_disconnect)) }
                 }
+            }
+            if (status.phase != "off") TextButton(onClick = { CarrierTransport.disconnect(context) }, enabled = !busy) {
+                Text(stringResource(R.string.carrier_disconnect))
             }
         }
     }

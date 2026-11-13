@@ -1,0 +1,1 @@
+Optional Telemost/VK rooms in both standard and Tor APKs, using existing identity and contacts. Separate experimental build retired. Leaving restores regular calls; Tor is paused in room mode and the service sees your IP. Operation on whitelist-only networks remains unverified.

@@ -159,7 +159,7 @@ class PeerConnectionManager(
     private var lastPacketsReceived = 0L
 
     fun createPeerConnection(listener: Listener, noiseSuppression: Boolean) {
-        val carrier = if (CarrierTransport.available) requireNotNull(CarrierTransport.turn) { "Join a carrier room first" } else null
+        val carrier = if (CarrierTransport.active) requireNotNull(CarrierTransport.turn) { "Join a carrier room first" } else null
         val servers = if (carrier != null) listOf(PeerConnection.IceServer.builder(carrier.url)
             .setUsername(carrier.username).setPassword(carrier.password).createIceServer()) else
             IceServerConfig.createIceServers(useTurn, AppSettings.get(context).turn)

@@ -128,6 +128,9 @@ fun HomeScreen(
     var contactToDelete by remember { mutableStateOf<Contact?>(null) }
     var contactToRename by remember { mutableStateOf<Contact?>(null) }
     var showSettings by remember { mutableStateOf(false) }
+    var showCarrier by remember { mutableStateOf(false) }
+    val carrierStatus by com.dpsmpx.dpcall.carrier.CarrierTransport.status.collectAsStateWithLifecycle()
+    val roomActive = carrierStatus.phase != "off"
     var showQr by remember { mutableStateOf(false) }
     var showInvite by remember { mutableStateOf(false) }
     val tab = state.tab
@@ -151,7 +154,7 @@ fun HomeScreen(
     val restriction by NetworkRestriction.state.collectAsStateWithLifecycle()
     var showConnectionCheck by remember { mutableStateOf(false) }
     // Проверка маршрутов (STUN/TURN) — при открытии и после смены сети, не чаще раза в 10 минут.
-    LaunchedEffect(resumes) {
+    LaunchedEffect(resumes, roomActive) {
         PathProbe.runIfStale(context, busy = CallManager.uiState.value.state != CallState.IDLE)
     }
     val vendorSetupDone by appSettings.vendorSetupDone.collectAsStateWithLifecycle()
@@ -216,11 +219,8 @@ fun HomeScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     item(key = "status") {
-                        if (com.dpsmpx.dpcall.carrier.CarrierTransport.available) {
-                            com.dpsmpx.dpcall.carrier.CarrierPanel { code ->
-                                onCall(state.contacts.firstOrNull { it.code == code } ?: Contact(name = code.take(5), code = code))
-                            }
-                        } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (!roomActive) {
                             ReadinessBanner(readiness, pathCheck, relayStatus.tor, restriction) {
                                 when (readiness) {
                                     Readiness.NO_NOTIFICATIONS -> openNotificationSettings(context)
@@ -230,6 +230,15 @@ fun HomeScreen(
                                     else -> showSettings = true
                                 }
                             }
+                        }
+                        if (roomActive || showCarrier) {
+                            com.dpsmpx.dpcall.carrier.CarrierPanel { code ->
+                                onCall(state.contacts.firstOrNull { it.code == code } ?: Contact(name = code.take(5), code = code))
+                            }
+                        }
+                        if (!roomActive) TextButton(onClick = { showCarrier = !showCarrier }) {
+                            Text(stringResource(if (showCarrier) R.string.close else R.string.carrier_title))
+                        }
                         }
                     }
                     update?.let { available ->
@@ -648,6 +657,8 @@ private fun SettingsDialog(relayStatus: RelayStatus, onManualInvite: () -> Unit,
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val settings = remember { AppSettings.get(context) }
+    val carrierStatus by com.dpsmpx.dpcall.carrier.CarrierTransport.status.collectAsStateWithLifecycle()
+    val roomActive = carrierStatus.phase != "off"
     val background by settings.backgroundListening.collectAsStateWithLifecycle()
     val contactsOnly by settings.contactsOnly.collectAsStateWithLifecycle()
     val missedNotices by settings.missedNotices.collectAsStateWithLifecycle()
@@ -668,7 +679,7 @@ private fun SettingsDialog(relayStatus: RelayStatus, onManualInvite: () -> Unit,
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    if (com.dpsmpx.dpcall.carrier.CarrierTransport.available) stringResource(R.string.carrier_title)
+                    if (roomActive) stringResource(R.string.carrier_title)
                     else if (relayStatus.online) stringResource(R.string.relays_connected, relayStatus.connected, relayStatus.total)
                     else stringResource(R.string.relays_offline),
                     style = MaterialTheme.typography.bodyMedium,
@@ -724,7 +735,7 @@ private fun SettingsDialog(relayStatus: RelayStatus, onManualInvite: () -> Unit,
                     checked = contactsOnly,
                     onChange = { settings.setContactsOnly(it) }
                 )
-                if (!com.dpsmpx.dpcall.carrier.CarrierTransport.available) {
+                if (!roomActive) {
                     SettingRow(
                         title = stringResource(R.string.setting_missed_notices),
                         description = stringResource(R.string.setting_missed_notices_desc),

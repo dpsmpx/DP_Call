@@ -77,6 +77,7 @@ object NetworkTest {
 
     /** Проводит все проверки (несколько десятков секунд), вызывать не с главного потока. */
     fun run(context: Context, onLine: (Line) -> Unit): String {
+        if (com.dpsmpx.dpcall.carrier.CarrierTransport.active) return "Room mode: leave the room before testing public network services."
         val app = context.applicationContext
         val lines = mutableListOf<Line>()
         fun emit(line: Line) {

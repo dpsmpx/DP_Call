@@ -75,6 +75,13 @@ object PathProbe {
 
     @Volatile
     private var stale = false
+    private var cancelProbe: (() -> Unit)? = null
+
+    fun cancel() {
+        cancelProbe?.invoke()
+        cancelProbe = null
+        stale = true
+    }
 
     /** Сеть сменилась — прошлый результат больше не верен. */
     fun markStale() {
@@ -89,7 +96,7 @@ object PathProbe {
 
     /** @param busy идёт звонок: проверку не запускаем, чтобы не мешать ему. */
     fun run(context: Context, busy: Boolean) {
-        if (com.dpsmpx.dpcall.carrier.CarrierTransport.available) return
+        if (com.dpsmpx.dpcall.carrier.CarrierTransport.active) return
         if (_running.value || busy) return
         _running.value = true
         stale = false
@@ -103,6 +110,7 @@ object PathProbe {
         fun finish(failed: Boolean = false) {
             if (finished) return
             finished = true
+            cancelProbe = null
             try {
                 pc?.dispose()
             } catch (e: Exception) {
@@ -120,6 +128,7 @@ object PathProbe {
             _running.value = false
         }
 
+        cancelProbe = { finish(failed = true) }
         try {
             val config = PeerConnection.RTCConfiguration(IceServerConfig.createIceServers(true, custom)).apply {
                 sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN

@@ -347,6 +347,13 @@ fun AdvancedSettings(onManualInvite: () -> Unit) {
     val turnInvalid = stringResource(R.string.turn_invalid)
     val reportTitle = stringResource(R.string.send_error_log)
 
+    val carrierStatus by com.dpsmpx.dpcall.carrier.CarrierTransport.status.collectAsStateWithLifecycle()
+    if (carrierStatus.phase != "off") {
+        if (com.dpsmpx.dpcall.BuildConfig.TOR) Text(stringResource(R.string.carrier_tor_disclosure))
+        BackupSection()
+        return
+    }
+
     // --- Tor (только в сборке с Tor)
     if (TorProxy.available) {
         val tor by settings.torSignaling.collectAsStateWithLifecycle()

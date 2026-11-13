@@ -59,7 +59,12 @@ object BackupManager {
         val app = context.applicationContext
         IdentityRepository(app).replace(content.keys)
         ContactsRepository(app).merge(content.contacts).getOrThrow()
-        CallManager.onIdentityChanged()
+        withContext(Dispatchers.Main) {
+            // An established room key belongs to the old identity. Require a fresh join.
+            if (com.dpsmpx.dpcall.carrier.CarrierTransport.active)
+                com.dpsmpx.dpcall.carrier.CarrierTransport.disconnect(app)
+            CallManager.onIdentityChanged()
+        }
         RelaySignaling.restart(app)
     }
 }

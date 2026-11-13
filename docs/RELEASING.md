@@ -154,15 +154,20 @@ sources jar той же версии (`app/src/tor/java/org/torproject/jni/`, л
 `org/torproject/jni/BuildConfig.java`. Затем соберите `assembleTorRelease` и проверьте на
 телефоне, что плашка доходит до «На связи через Tor».
 
-## Experimental APK (1.3.1+)
+## Транспорт комнат (1.4.0+)
 
-Workflow дополнительно собирает `DP_Call-Experimental-v<версия>.apk` из flavor
-`experimental`. У него applicationId `com.dpsmpx.dpcall.experimental`, отдельные
-ключи и контакты; он не заменяет стандартный или Tor APK. Постоянная копия `DP_Call-Experimental.apk` используется ссылкой приглашения
-этой сборки. Автоматическое обновление экспериментальной сборки отключено.
+Workflow выпускает только `DP_Call-v<версия>.apk` и `DP_Call-Tor-v<версия>.apk`
+с постоянными копиями `DP_Call.apk` и `DP_Call-Tor.apk`. Оба APK имеют прежние
+идентификатор и подпись, сохраняют код и контакты при обновлении и включают
+опциональные звонки через Телемост/VK. Новый отдельный flavor не создаётся.
+Архивные выпуски не переписываются.
 
-Перед Gradle workflow запускает `carrier/build.sh`: закреплённые MIT-исходники,
-Go race tests, gomobile AAR для ARM и ARM64. Затем тесты и lint всех трёх вариантов
-и `assembleRelease`. PR собирается с публичным тестовым ключом; после слияния в
-main — с ключом из Secrets и публикацией релиза. PR не публикует релиз.
-[Требования и архитектура адаптера](../carrier/UPSTREAM.md).
+Go-модуль комнат и IPtProxy в Tor APK связаны в одну AAR, чтобы не дублировать
+`libgojni.so`/`go.Seq`. Пины и контрольные суммы — в `carrier/`, тесты обеих Go
+конфигураций и мостов запускаются до сборки. С релизом публикуется архив
+`DP_Call-native-sources.tar.gz` с соответствующими исходниками и зависимостями
+Tor-модуля. APK содержат лицензионные уведомления в assets/carrier-licenses.txt.
+
+Проверка правил RuStore: [RUSTORE_REVIEW.md](RUSTORE_REVIEW.md). Этот workflow
+публикует только на GitHub, не отправляет APK в RuStore и не подтверждает
+допустимость Tor или транспорта комнат в магазине.

@@ -124,14 +124,16 @@ DP Call has no permission to install apps.
 
 Questions: <https://github.com/dpsmpx/DP_Call/issues>.
 
-## Experimental Telemost / VK carrier (1.3.1+)
+## Optional Telemost / VK rooms (1.4.0+)
 
-The separate Experimental APK uses an explicitly chosen third-party guest room
+Both standard and Tor APKs offer an optional, disabled-by-default third-party guest room
 for signaling and encrypted voice packets. The service sees participants, IP
 addresses, timing and traffic volume; DP Call retains end-to-end DTLS-SRTP and
 adds pair-key authenticated encryption around the carrier packets. No automatic
-public relay, STUN/TURN fallback or update check runs in this build. Room links
+public relay, STUN/TURN fallback or update check runs while this mode is selected, including after a room failure. Leaving restores
+the previous regular signaling settings. Tor is paused during room mode;
+connections to the room service are direct and expose the IP to that service. Room links
 and guest authentication credentials are not written to the app log. Session
-configuration is kept in memory. See [setup and limitations](EXPERIMENTAL_TRANSPORT.md)
+configuration is kept in memory. See [setup and limitations](ROOM_CALLS.md)
 and [implementation/licensing](../carrier/UPSTREAM.md). SMS signal exchange is
 signed, but SMS contents (including ICE addresses) are not encrypted.
