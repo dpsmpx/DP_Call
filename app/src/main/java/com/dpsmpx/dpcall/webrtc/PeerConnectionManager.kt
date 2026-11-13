@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.util.Log
 import com.dpsmpx.dpcall.data.AppSettings
+import com.dpsmpx.dpcall.carrier.CarrierTransport
 import com.dpsmpx.dpcall.util.AppLog
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
@@ -158,7 +159,12 @@ class PeerConnectionManager(
     private var lastPacketsReceived = 0L
 
     fun createPeerConnection(listener: Listener, noiseSuppression: Boolean) {
-        val rtcConfig = PeerConnection.RTCConfiguration(IceServerConfig.createIceServers(useTurn, AppSettings.get(context).turn)).apply {
+        val carrier = if (CarrierTransport.available) requireNotNull(CarrierTransport.turn) { "Join a carrier room first" } else null
+        val servers = if (carrier != null) listOf(PeerConnection.IceServer.builder(carrier.url)
+            .setUsername(carrier.username).setPassword(carrier.password).createIceServer()) else
+            IceServerConfig.createIceServers(useTurn, AppSettings.get(context).turn)
+        val rtcConfig = PeerConnection.RTCConfiguration(servers).apply {
+            if (carrier != null) iceTransportsType = PeerConnection.IceTransportsType.RELAY
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_ONCE
             tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.ENABLED

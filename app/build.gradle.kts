@@ -17,8 +17,8 @@ android {
         applicationId = "com.dpsmpx.dpcall"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.3.0"
+        versionCode = 10
+        versionName = "1.3.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -32,10 +32,20 @@ android {
             dimension = "transport"
             isDefault = true
             buildConfigField("boolean", "TOR", "false")
+            buildConfigField("boolean", "CARRIER", "false")
         }
         create("tor") {
             dimension = "transport"
             buildConfigField("boolean", "TOR", "true")
+            buildConfigField("boolean", "CARRIER", "false")
+        }
+        create("experimental") {
+            dimension = "transport"
+            applicationIdSuffix = ".experimental"
+            versionNameSuffix = "-experimental"
+            buildConfigField("boolean", "TOR", "false")
+            buildConfigField("boolean", "CARRIER", "true")
+            resValue("string", "app_name", "DP Call Experimental")
         }
     }
 
@@ -162,6 +172,7 @@ dependencies {
     "torImplementation"("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
     // Мосты Tor (obfs4, webtunnel, snowflake, meek): Lyrebird и Snowflake от Guardian Project.
     "torImplementation"("com.netzarchitekten:IPtProxy:5.7.0")
+    "experimentalImplementation"(files("../carrier/mobile.aar"))
     // QR-коды: показ своего кода и сканирование кода собеседника
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 
@@ -193,6 +204,9 @@ val extractTorNative = tasks.register<Sync>("extractTorNative") {
     into(layout.buildDirectory.dir("generated/torJni"))
 }
 android.sourceSets.getByName("tor").jniLibs.srcDir(layout.buildDirectory.dir("generated/torJni"))
+android.sourceSets.getByName("standard").java.srcDir("src/direct/java")
+android.sourceSets.getByName("tor").java.srcDir("src/direct/java")
+android.sourceSets.getByName("experimental").java.srcDir("src/standard/java")
 tasks.configureEach {
     if (name.startsWith("mergeTor") && name.endsWith("JniLibFolders")) dependsOn(extractTorNative)
 }
@@ -201,6 +215,9 @@ tasks.configureEach {
 // 60 МБ без сжатия, со сжатием APK меньше примерно вдвое. Обычная сборка не меняется.
 androidComponents {
     onVariants(selector().withFlavor("transport" to "tor")) { variant ->
+        variant.packaging.jniLibs.useLegacyPackaging.set(true)
+    }
+    onVariants(selector().withFlavor("transport" to "experimental")) { variant ->
         variant.packaging.jniLibs.useLegacyPackaging.set(true)
     }
 }

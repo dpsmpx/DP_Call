@@ -190,6 +190,7 @@ class RelayPool(
         private var socket: WebSocket? = null
         /** Новое соединение, которое заменит [socket], как только откроется. */
         private var next: WebSocket? = null
+        private val retiring = mutableSetOf<WebSocket>()
         /** Сколько байт сервер прислал по текущему соединению (оценка, с TLS). */
         private var received = 0L
         private var lastRotation = 0L
@@ -228,6 +229,7 @@ class RelayPool(
         }
 
         fun awaitAck(eventId: String) {
+            pendingAcks.remove(eventId)?.cancel(false)
             if (pendingAcks.size >= MAX_PENDING_ACKS) return
             pendingAcks[eventId] = executor.schedule({
                 if (pendingAcks.remove(eventId) != null && active) {
@@ -243,6 +245,8 @@ class RelayPool(
             retry = null
             next?.cancel()
             next = null
+            retiring.forEach { it.cancel() }
+            retiring.clear()
             socket?.cancel()
             open = false
             connecting = true
@@ -264,6 +268,8 @@ class RelayPool(
             stable = null
             next?.cancel()
             next = null
+            retiring.forEach { it.cancel() }
+            retiring.clear()
             pendingAcks.values.forEach { it.cancel(false) }
             pendingAcks.clear()
             socket?.close(1000, null)
@@ -331,11 +337,12 @@ class RelayPool(
                     // Замена готова: подписываемся на новом соединении, старое закрываем чуть
                     // позже, чтобы не потерять то, что уже в пути.
                     val old = socket
+                    if (old != null) retiring += old
                     socket = webSocket
                     next = null
                     received = HANDSHAKE_BYTES
                     subscribe(webSocket)
-                    executor.schedule({ old?.close(1000, null) }, 2, TimeUnit.SECONDS)
+                    executor.schedule({ old?.close(1000, null); retiring.remove(old) }, 2, TimeUnit.SECONDS)
                     return@execute
                 }
                 if (webSocket !== socket) return@execute
@@ -353,9 +360,9 @@ class RelayPool(
 
         override fun onMessage(webSocket: WebSocket, text: String) {
             executor.execute {
-                if (webSocket !== socket) return@execute
+                if (webSocket !== socket && webSocket !in retiring) return@execute
                 handleMessage(url, text)
-                countReceived((text.length + FRAME_BYTES).toLong())
+                if (webSocket === socket) countReceived((text.toByteArray(Charsets.UTF_8).size + FRAME_BYTES).toLong())
             }
         }
 

@@ -25,3 +25,5 @@
 # Встроенный Tor (сборка tor): нативная libtor.so обращается к полям и методам
 # TorService по именам.
 -keep class org.torproject.jni.** { *; }
+-keep class org.dpcall.** { *; }
+-keep class go.** { *; }

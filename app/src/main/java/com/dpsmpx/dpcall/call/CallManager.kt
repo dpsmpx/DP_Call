@@ -187,6 +187,7 @@ object CallManager {
     private var pendingOffer: DecodedSignal? = null
     private var pendingLocalSdp: SessionDescription? = null
     private var signalFinalized = false
+    private var peerSignalVersion = 1
     private var useFallbackRouting = false
     private var statsJob: Job? = null
     private var resendJob: Job? = null
@@ -309,6 +310,12 @@ object CallManager {
 
     fun startOutgoing(contactName: String, contactCode: String) {
         if (state.isActive) return
+        if (com.dpsmpx.dpcall.carrier.CarrierTransport.available &&
+            (!com.dpsmpx.dpcall.carrier.CarrierTransport.ready ||
+                !contactCode.equals(com.dpsmpx.dpcall.carrier.CarrierTransport.status.value.peerCode, ignoreCase = true))) {
+            showFailure(contactName, contactCode, app.getString(R.string.carrier_join_first))
+            return
+        }
         if (!hasMicPermission()) {
             showFailure(contactName, contactCode, app.getString(R.string.error_mic_permission))
             return
@@ -393,6 +400,7 @@ object CallManager {
                     AppLog.add(TAG, "manual answer rejected: signed by someone else")
                     return if (auto) SignalResult.Ignored else SignalResult.Invalid(app.getString(R.string.error_answer_wrong_sender))
                 }
+                if (decoded.payload.callId != callId) return SignalResult.Invalid(app.getString(R.string.answer_not_expected))
                 handledSignals += key
                 applyRemoteAnswer(decoded)
                 SignalResult.AnswerApplied
@@ -455,6 +463,7 @@ object CallManager {
         ) {
             return
         }
+        peerSignalVersion = maxOf(peerSignalVersion, message.signalVersion.coerceIn(1, 2))
         when (message.t) {
             CallMessage.RINGING -> if (current.state == CallState.WAITING_FOR_ANSWER && !current.remoteRinging) {
                 _uiState.update { it.copy(remoteRinging = true, peerUnreachable = false, slowToReach = false, statusMessage = app.getString(R.string.status_ringing)) }
@@ -502,13 +511,15 @@ object CallManager {
             }
             return
         }
-        if (message.id == callId && state.isActive) {
+        if (message.id == callId && state.isActive && fromCode.equals(_uiState.value.contactCode, ignoreCase = true)) {
             // Вызывающий повторяет приглашение, пока не получит подтверждение.
             if (state == CallState.RINGING) sendToPeer(CallMessage.RINGING)
             return
         }
         val known = contacts.any { it.code.equals(fromCode, ignoreCase = true) }
-        if (!known && settings.contactsOnly.value) {
+        val selectedCarrierPeer = com.dpsmpx.dpcall.carrier.CarrierTransport.available &&
+            fromCode.equals(com.dpsmpx.dpcall.carrier.CarrierTransport.status.value.peerCode, ignoreCase = true)
+        if (!known && settings.contactsOnly.value && !selectedCarrierPeer) {
             AppLog.add(TAG, "call from unknown code ignored (contacts only)")
             return
         }
@@ -531,6 +542,7 @@ object CallManager {
             return
         }
         ring(decoded, code = fromCode, id = message.id, viaRelay = true)
+        peerSignalVersion = message.signalVersion.coerceIn(1, 2)
         sendToPeer(CallMessage.RINGING)
     }
 
@@ -595,7 +607,7 @@ object CallManager {
             AppLog.add(TAG, "relay out: $type SKIPPED (callId blank=${callId.isBlank()}, code valid=${CodeValidator.isValid(code)})")
             return 0
         }
-        val accepted = RelaySignaling.send(code, CallMessage(type, callId, signal))
+        val accepted = RelaySignaling.send(code, CallMessage(type, callId, signal, signalVersion = 2))
         AppLog.add(TAG, "relay out: $type call=${callId.take(6)} signal=${signal?.length ?: 0} relays=$accepted")
         return accepted
     }
@@ -858,7 +870,13 @@ object CallManager {
         }
         // Свой сигнал не должен «позвонить» нам же из буфера обмена.
         handledSignals += signal.hashCode()
-        return signal
+        return if (peerSignalVersion >= 2) SignalCodec.compact(signal) else signal
+    }
+
+    /** Gathered routes may have changed since the call screen was first shown. */
+    fun signalForSharing(compact: Boolean = false): String? {
+        val signal = buildLocalSignal() ?: return null
+        return if (compact) SignalCodec.compact(signal) else signal
     }
 
     private fun finalizeLocalSignal(reason: String) {
@@ -1304,6 +1322,7 @@ object CallManager {
         pendingOffer = null
         pendingLocalSdp = null
         signalFinalized = false
+        peerSignalVersion = 1
     }
 
     private fun finish(

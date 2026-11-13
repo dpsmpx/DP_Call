@@ -20,3 +20,7 @@ out/
 /app/release
 *.log
 *.hprof
+
+.build/
+carrier/mobile.aar
+carrier/mobile-sources.jar

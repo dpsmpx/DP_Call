@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import com.dpsmpx.dpcall.tor.TorProxy
 import com.dpsmpx.dpcall.tor.TorState
+import com.dpsmpx.dpcall.carrier.CarrierTransport
 
 data class RelayStatus(
     val connected: Int = 0,
@@ -62,6 +63,10 @@ object RelaySignaling {
     fun start(context: Context) {
         if (started) return
         started = true
+        if (CarrierTransport.available) {
+            carrierStatusChanged(CarrierTransport.ready)
+            return
+        }
         val app = context.applicationContext
         startJob = scope.launch {
             try {
@@ -147,9 +152,13 @@ object RelaySignaling {
     /** Состояние каждого релея — для диагностики. */
     fun relayStates(): List<RelayPool.RelayState> = messenger?.relayStates() ?: emptyList()
 
+    fun carrierStatusChanged(ready: Boolean) {
+        if (CarrierTransport.available) _status.value = RelayStatus(if (ready) 1 else 0, 1)
+    }
+
     /** @return сколько релеев приняли сообщение (0 — доставить сейчас нельзя). */
     fun send(toCode: String, message: CallMessage): Int = try {
-        messenger?.send(toCode, message) ?: 0
+        if (CarrierTransport.available) CarrierTransport.send(toCode, message) else messenger?.send(toCode, message) ?: 0
     } catch (e: Exception) {
         Log.w(TAG, "send failed", e)
         0

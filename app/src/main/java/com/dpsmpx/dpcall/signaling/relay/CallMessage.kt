@@ -15,7 +15,9 @@ data class CallMessage(
     val t: String,
     val id: String,
     val signal: String? = null,
-    val ts: Long = System.currentTimeMillis()
+    val ts: Long = System.currentTimeMillis(),
+    /** Highest readable signal format; absent on older clients. */
+    val signalVersion: Int = 1
 ) {
     companion object {
         const val OFFER = "offer"

@@ -89,6 +89,7 @@ object PathProbe {
 
     /** @param busy идёт звонок: проверку не запускаем, чтобы не мешать ему. */
     fun run(context: Context, busy: Boolean) {
+        if (com.dpsmpx.dpcall.carrier.CarrierTransport.available) return
         if (_running.value || busy) return
         _running.value = true
         stale = false

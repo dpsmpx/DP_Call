@@ -216,6 +216,9 @@ fun HomeScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     item(key = "status") {
+                        if (com.dpsmpx.dpcall.carrier.CarrierTransport.available) {
+                            com.dpsmpx.dpcall.carrier.CarrierPanel()
+                        } else {
                         ReadinessBanner(readiness, pathCheck, relayStatus.tor, restriction) {
                             when (readiness) {
                                 Readiness.NO_NOTIFICATIONS -> openNotificationSettings(context)
@@ -225,6 +228,7 @@ fun HomeScreen(
                                 else -> showSettings = true
                             }
                         }
+                    }
                     }
                     update?.let { available ->
                         item(key = "update") {

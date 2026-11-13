@@ -9,6 +9,7 @@ on:
       - 'docs/**'
       - 'fastlane/**'
       - 'LICENSE'
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -21,7 +22,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       # Сторонние действия закреплены по хешу коммита: тег можно переставить, хеш — нет.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -35,18 +36,39 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
 
-      - name: Unit tests
-        run: ./gradlew --no-daemon testStandardDebugUnitTest testTorDebugUnitTest
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.1'
+          cache: false
+
+      - name: Build experimental carrier (pinned upstream, Go race tests)
+        run: |
+          sdkmanager "ndk;29.0.14206865"
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
+          export CGO_LDFLAGS="-Wl,-z,max-page-size=16384"
+          ./carrier/build.sh
+
+      - name: Unit tests and lint
+        run: ./gradlew --no-daemon testStandardDebugUnitTest testTorDebugUnitTest testExperimentalDebugUnitTest lintStandardDebug lintTorDebug lintExperimentalDebug
+
+      - name: Test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: tests
+          path: |
+            app/build/reports/tests/
+            app/build/reports/lint-results-*.html
 
       # Релизная сборка. С секретами репозитория подписывается вашим ключом,
       # без них — общим тестовым ключом из репозитория (см. app/build.gradle.kts).
       - name: Build release APK
         # Секреты подписи доступны только этому шагу, а не сторонним действиям.
         env:
-          KEYSTORE_BASE64: ${{ secrets.DPCALL_KEYSTORE_BASE64 }}
-          DPCALL_KEYSTORE_PASSWORD: ${{ secrets.DPCALL_KEYSTORE_PASSWORD }}
-          DPCALL_KEY_ALIAS: ${{ secrets.DPCALL_KEY_ALIAS }}
-          DPCALL_KEY_PASSWORD: ${{ secrets.DPCALL_KEY_PASSWORD }}
+          KEYSTORE_BASE64: ${{ github.event_name != 'pull_request' && secrets.DPCALL_KEYSTORE_BASE64 || '' }}
+          DPCALL_KEYSTORE_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.DPCALL_KEYSTORE_PASSWORD || '' }}
+          DPCALL_KEY_ALIAS: ${{ github.event_name != 'pull_request' && secrets.DPCALL_KEY_ALIAS || '' }}
+          DPCALL_KEY_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.DPCALL_KEY_PASSWORD || '' }}
           # Только признак: ключ по ошибке положили в Variables вместо Secrets.
           KEY_IN_VARIABLES: ${{ vars.DPCALL_KEYSTORE_BASE64 != '' }}
         run: |
@@ -55,6 +77,8 @@ jobs:
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
             export DPCALL_KEYSTORE_FILE="$RUNNER_TEMP/release.jks"
             echo "Signing with the repository release key"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "PR validation uses the public test key"
           elif [ "$KEY_IN_VARIABLES" = "true" ]; then
             # Переменные не шифруются и печатаются в журнале, поэтому ключ из них не берётся.
             echo "::error::The signing key is stored in repository Variables. Move all four DPCALL_* values to the Secrets tab (see docs/RELEASING.md)"
@@ -89,6 +113,7 @@ jobs:
           tor=app/build/outputs/apk/tor/release/app-tor-release.apk
           cp "$standard" "dist/DP_Call-${tag}.apk"
           cp "$tor" "dist/DP_Call-Tor-${tag}.apk"
+          cp app/build/outputs/apk/experimental/release/app-experimental-release.apk "dist/DP_Call-Experimental-${tag}.apk"
           # Копии с постоянными именами: .../releases/latest/download/DP_Call.apk всегда
           # ведёт на последний выпуск — её рассылает кнопка «Пригласить» в приложении.
           if [ "$prerelease" = "false" ]; then
@@ -119,6 +144,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Publish GitHub release
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.apks.outputs.tag }}
