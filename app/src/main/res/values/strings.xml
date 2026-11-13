@@ -203,7 +203,6 @@
     <string name="setting_update_check">Check for updates</string>
     <string name="setting_update_check_desc">Once a day the app asks GitHub for the latest version. Installed: %1$s</string>
     <string name="call_log_missed_count">History · %1$d</string>
-    <string name="share_code_text">My DP Call code:\n%1$s\n\nDP Call — voice calls without sign-up or a phone number: %2$s</string>
     <string name="manual_invite_title">Accept an invitation manually</string>
     <string name="manual_invite_desc">For when a call could not get through and the invitation was sent through a messenger. Usually it is picked up automatically — from “Share → DP Call” or the clipboard.</string>
     <string name="manual_invite_button">Paste an invitation</string>
@@ -226,4 +225,9 @@
     <string name="backup_restore_failed">Could not restore the backup</string>
     <string name="backup_restored">Code and contacts restored</string>
     <string name="backup_restore_confirm">Restore</string>
+    <string name="invite">Invite</string>
+    <string name="invite_title">Invite to DP Call</string>
+    <string name="invite_empty">Invite someone to DP Call</string>
+    <string name="invite_text">Let\'s talk on DP Call — voice calls without sign-up or a phone number.\n\nDownload for Android: %1$s\nAbout the app: %2$s</string>
+    <string name="share_code_text">My DP Call code:\n%1$s\n\nNo DP Call yet? Download for Android: %2$s\nAbout the app: %3$s</string>
 </resources>

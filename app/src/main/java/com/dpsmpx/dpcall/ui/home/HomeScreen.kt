@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.QrCode2
@@ -154,6 +155,15 @@ fun HomeScreen(
                 title = { Text("DP Call", fontWeight = FontWeight.SemiBold) },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
                 actions = {
+                    // Без приложения собеседнику не дозвониться — ссылка на него всегда под рукой.
+                    FilledTonalButton(
+                        onClick = { shareAppLink(context) },
+                        contentPadding = PaddingValues(horizontal = 14.dp),
+                    ) {
+                        Icon(Icons.Default.GroupAdd, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.invite))
+                    }
                     IconButton(onClick = { showSettings = true }) {
                         Icon(Icons.Default.Settings, stringResource(R.string.settings))
                     }
@@ -215,7 +225,7 @@ fun HomeScreen(
                                 // Получатель должен понять, что это и где взять приложение.
                                 shareText(
                                     context,
-                                    context.getString(R.string.share_code_text, code, UpdateChecker.RELEASES_PAGE),
+                                    context.getString(R.string.share_code_text, code, UpdateChecker.DIRECT_DOWNLOAD, UpdateChecker.RELEASES_PAGE),
                                     context.getString(R.string.share_my_code)
                                 )
                             }
@@ -281,7 +291,9 @@ fun HomeScreen(
                             }
                         }
                     } else if (state.contacts.isEmpty()) {
-                        item(key = "empty") { EmptyContacts(onAdd = { viewModel.openAddDialog() }) }
+                        item(key = "empty") {
+                            EmptyContacts(onAdd = { viewModel.openAddDialog() }, onInvite = { shareAppLink(context) })
+                        }
                     } else {
                         items(state.contacts, key = { it.code }) { contact ->
                             ContactItem(
@@ -738,7 +750,7 @@ private fun OwnCodeCard(copied: Boolean, onQr: () -> Unit, onCopy: () -> Unit, o
 }
 
 @Composable
-private fun EmptyContacts(onAdd: () -> Unit) {
+private fun EmptyContacts(onAdd: () -> Unit, onInvite: () -> Unit) {
     Column(
         Modifier.fillMaxWidth().padding(vertical = 40.dp, horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -763,7 +775,19 @@ private fun EmptyContacts(onAdd: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             Text(stringResource(R.string.add_contact))
         }
+        TextButton(onClick = onInvite) {
+            Text(stringResource(R.string.invite_empty))
+        }
     }
+}
+
+/** Приглашение установить DP Call: прямая ссылка на APK и страница выпусков. */
+private fun shareAppLink(context: Context) {
+    shareText(
+        context,
+        context.getString(R.string.invite_text, UpdateChecker.DIRECT_DOWNLOAD, UpdateChecker.RELEASES_PAGE),
+        context.getString(R.string.invite_title)
+    )
 }
 
 @Composable

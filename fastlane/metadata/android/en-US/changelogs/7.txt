@@ -1,0 +1,3 @@
+* New Invite button on the home screen: send anyone a direct download link for DP Call — they cannot be called without the app
+* The message with your code now includes the download link too
+* Permanent link to the latest version: https://github.com/dpsmpx/DP_Call/releases/latest/download/DP_Call.apk

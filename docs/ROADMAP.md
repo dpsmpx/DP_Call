@@ -50,6 +50,10 @@
 - Contact codes accepted from the share sheet and the clipboard; call back from the
   missed-call notification; add unknown callers from the history
 
+## Stage 3.3 — v1.2.1 (done)
+- Invite button: a direct download link for people who do not have the app yet
+- Permanent `latest/download/DP_Call.apk` link
+
 ## Stage 4 — Hardening
 - Security and code audit before the public release (done, see SECURITY.md)
 - Own release signing key (done)

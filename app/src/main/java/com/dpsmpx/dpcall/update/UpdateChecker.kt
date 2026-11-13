@@ -30,6 +30,11 @@ object UpdateChecker {
     private const val TAG = "UpdateChecker"
     const val REPOSITORY = "dpsmpx/DP_Call"
     const val RELEASES_PAGE = "https://github.com/$REPOSITORY/releases/latest"
+    /**
+     * Прямая ссылка на APK последнего выпуска. Работает, потому что к каждому выпуску
+     * прикладывается копия APK с постоянным именем (см. .github/workflows/build.yml).
+     */
+    const val DIRECT_DOWNLOAD = "https://github.com/$REPOSITORY/releases/latest/download/DP_Call.apk"
     private const val LATEST_RELEASE_API = "https://api.github.com/repos/$REPOSITORY/releases/latest"
     /** Скачивать разрешаем только файлы выпусков этого репозитория. */
     private const val DOWNLOAD_PREFIX = "https://github.com/$REPOSITORY/releases/"

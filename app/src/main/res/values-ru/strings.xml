@@ -202,7 +202,6 @@
     <string name="setting_update_check">Проверять обновления</string>
     <string name="setting_update_check_desc">Раз в сутки приложение спрашивает у GitHub номер последней версии. Установлена: %1$s</string>
     <string name="call_log_missed_count">Журнал · %1$d</string>
-    <string name="share_code_text">Мой код DP Call:\n%1$s\n\nDP Call — голосовые звонки без регистрации и номера телефона: %2$s</string>
     <string name="manual_invite_title">Принять приглашение вручную</string>
     <string name="manual_invite_desc">На случай, когда вызов не дошёл и приглашение прислали через мессенджер. Обычно оно подхватывается само — из «Поделиться → DP Call» или из буфера обмена.</string>
     <string name="manual_invite_button">Вставить приглашение</string>
@@ -225,4 +224,9 @@
     <string name="backup_restore_failed">Не удалось восстановить копию</string>
     <string name="backup_restored">Код и контакты восстановлены</string>
     <string name="backup_restore_confirm">Восстановить</string>
+    <string name="invite">Пригласить</string>
+    <string name="invite_title">Пригласить в DP Call</string>
+    <string name="invite_empty">Пригласить в DP Call</string>
+    <string name="invite_text">Давай созваниваться в DP Call — голосовые звонки без регистрации и номера телефона.\n\nСкачать для Android: %1$s\nО приложении: %2$s</string>
+    <string name="share_code_text">Мой код DP Call:\n%1$s\n\nЕщё нет DP Call? Скачать для Android: %2$s\nО приложении: %3$s</string>
 </resources>
