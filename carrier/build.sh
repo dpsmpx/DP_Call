@@ -14,6 +14,8 @@ cp "$project/carrier/vk_initiator_test.go.in" "$upstream/relay/pion/headless-joi
 mkdir -p "$upstream/dpcallmobile"
 cp "$project"/carrier/*.go "$upstream/dpcallmobile/"
 cd "$upstream"
+# Previous source bundles may leave a vendor tree for the Tor graph.
+rm -rf "$upstream/vendor"
 go test -race ./dpcallmobile
 go test -race ./relay/pion/headless-joiner-common -run '^TestDPCall'
 # Tor binds IPtProxy and the carrier in ONE Go runtime, not two libgojni.so files.
@@ -35,7 +37,7 @@ go test -mod=readonly -modfile=tor.mod -race ./dpcallmobile
 go test -mod=readonly -modfile=tor.mod -race ./relay/pion/headless-joiner-common -run '^TestDPCall'
 go test -mod=readonly -modfile=tor.mod -race github.com/tladesignz/IPtProxy.git -run '^TestDPCall'
 if [ "${1:-}" = "test" ]; then exit 0; fi
-mobile_version=v0.0.0-20260908204917-8b95e45f8d3e
+mobile_version=v0.0.0-20260508232728-bebd421c7fa8
 go install golang.org/x/mobile/cmd/gomobile@"$mobile_version"
 go install golang.org/x/mobile/cmd/gobind@"$mobile_version"
 
@@ -56,20 +58,27 @@ notices() {
 }
 notices "$project/app/src/standard/assets/carrier-licenses.txt" ./dpcallmobile
 "$(go env GOPATH)/bin/gomobile" bind -trimpath -ldflags="-s -w -checklinkname=0" -target=android/arm,android/arm64 -androidapi 26 -javapkg org.dpcall -o "$project/carrier/mobile.aar" ./dpcallmobile
-export GOFLAGS="-mod=readonly -modfile=$upstream/tor.mod"
+cp go.mod standard.mod
+cp go.sum standard.sum
+cp tor.mod go.mod
+cp tor.sum go.sum
+mobile_version=v0.0.0-20260908204917-8b95e45f8d3e
+go install golang.org/x/mobile/cmd/gomobile@"$mobile_version"
+go install golang.org/x/mobile/cmd/gobind@"$mobile_version"
 notices "$project/app/src/tor/assets/carrier-licenses.txt" ./dpcallmobile github.com/tladesignz/IPtProxy.git
 "$(go env GOPATH)/bin/gomobile" bind -trimpath -ldflags="-s -w -checklinkname=0" -target=android/arm,android/arm64 -androidapi 26 -javapkg org.dpcall -o "$project/carrier/mobile-tor.aar" ./dpcallmobile github.com/tladesignz/IPtProxy.git
-unset GOFLAGS
+
 
 # Corresponding source, including the selected third-party modules and local
 # replacements, is distributed beside the APKs (Tor bridges include GPL components).
-go mod vendor -modfile=tor.mod
+go mod vendor
 bundle="$project/.build/native-sources"
 rm -rf "$bundle"
 mkdir -p "$bundle/carrier-upstream" "$bundle/iptproxy-source"
 git ls-files -z | tar --null -T - -cf - | tar -xf - -C "$bundle/carrier-upstream"
 cp -a dpcallmobile vendor "$bundle/carrier-upstream/"
-cp tor.mod tor.sum "$bundle/carrier-upstream/"
+cp standard.mod standard.sum "$bundle/carrier-upstream/"
+cp go.mod go.sum "$bundle/carrier-upstream/"
 cp -a "$ipt/IPtProxy.go" "$ipt/dnstt" "$bundle/iptproxy-source/"
 find "$bundle/iptproxy-source" -name .git -type f -delete
 cp "$project/carrier/UPSTREAM.md" "$bundle/BUILD.md"

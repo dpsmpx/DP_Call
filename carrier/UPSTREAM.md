@@ -77,17 +77,25 @@ both carriers. No success claim about Russian whitelists follows from CI.
 ## Rebuilding the source archive
 
 Use Go 1.26.1, Java 17, Android SDK and NDK 29.0.14206865. Install the pinned
-`gomobile` and `gobind` version `v0.0.0-20260908204917-8b95e45f8d3e` and put
+`gomobile` and `gobind` version `v0.0.0-20260908204917-8b95e45f8d3e` (Tor) and put
 GOPATH/bin on PATH. In the archive's `carrier-upstream` directory, set
 ANDROID_NDK_HOME and `CGO_LDFLAGS=-Wl,-z,max-page-size=16384`, then run:
 
 ```sh
-export GOFLAGS="-mod=vendor -modfile=$PWD/tor.mod"
+# gomobile creates its own temporary module; do not pass an absolute -modfile.
+# Vendored dependencies are supplied for inspection/offline recovery.
+rm -rf vendor
+export GOFLAGS="-mod=readonly"
 gomobile bind -trimpath -ldflags="-s -w -checklinkname=0" \
   -target=android/arm,android/arm64 -androidapi 26 -javapkg org.dpcall \
   -o mobile-tor.aar ./dpcallmobile github.com/tladesignz/IPtProxy.git
 ```
 
-The standard graph remains in go.mod/go.sum; unset GOFLAGS, fetch its pinned
-modules with `-mod=readonly` and bind only ./dpcallmobile to rebuild mobile.aar.
+The standard graph is in standard.mod/standard.sum; copy them to go.mod/go.sum,
+unset GOFLAGS, install the standard gomobile/gobind version
+`v0.0.0-20260508232728-bebd421c7fa8`, fetch pinned modules with `-mod=readonly`
+and bind only ./dpcallmobile to rebuild mobile.aar. gomobile generates its own
+temporary module, so remove the vendor directory before binding and use the
+pinned module versions/checksums in go.mod/go.sum (vendored sources are supplied
+for inspection and offline dependency recovery).
 The full Android app and build driver are in the matching DP Call Git tag.
