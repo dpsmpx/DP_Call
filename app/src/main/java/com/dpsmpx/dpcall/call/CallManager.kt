@@ -30,7 +30,10 @@ import com.dpsmpx.dpcall.util.AppLog
 import com.dpsmpx.dpcall.util.CodeValidator
 import com.dpsmpx.dpcall.webrtc.AudioCallManager
 import com.dpsmpx.dpcall.webrtc.AudioRoute
+import com.dpsmpx.dpcall.webrtc.BitrateController
 import com.dpsmpx.dpcall.webrtc.CallState
+import com.dpsmpx.dpcall.webrtc.HearQuality
+import com.dpsmpx.dpcall.webrtc.HearingEstimate
 import com.dpsmpx.dpcall.webrtc.LinkStats
 import com.dpsmpx.dpcall.webrtc.PeerConnectionManager
 import kotlinx.coroutines.CompletableDeferred
@@ -78,6 +81,8 @@ data class CallUiState(
     val availableRoutes: List<AudioRoute> = listOf(AudioRoute.EARPIECE, AudioRoute.SPEAKER),
     val noiseSuppression: Boolean = true,
     val quality: LinkQuality = LinkQuality.UNKNOWN,
+    /** Насколько хорошо слышно собеседника: доля потерянного и восполненного звука. */
+    val hearing: HearQuality = HearQuality.UNKNOWN,
     /** SystemClock.elapsedRealtime() момента соединения, 0 — ещё не соединились. */
     val connectedAt: Long = 0L,
     /** Длительность разговора (для экрана завершения), сек. */
@@ -144,6 +149,8 @@ object CallManager {
     private const val SLOW_REACH_MS = 12_000L
     /** Отметка о пропущенном старше срока хранения на релеях — повтор или сбитые часы. */
     private const val MISSED_MAX_AGE_MS = 49 * 3600_000L
+    /** Сколько замеров (по 2 с) усредняет индикатор слышимости. */
+    private const val HEARING_WINDOW = 3
     private const val MSG_BYE = "bye"
     private const val MSG_MUTE = "mute:"
 
@@ -1189,6 +1196,8 @@ object CallManager {
 
     private fun startStatsPolling() {
         statsJob?.cancel()
+        bitrate = BitrateController()
+        recentConcealment.clear()
         val gen = generation
         statsJob = scope.launch {
             while (isActive) {
@@ -1200,6 +1209,9 @@ object CallManager {
     }
 
     private var loggedRoute: String? = null
+    private var bitrate = BitrateController()
+    /** Последние замеры доли восполненного звука — для сглаживания индикатора слышимости. */
+    private val recentConcealment = ArrayDeque<Double>()
 
     private fun onStats(stats: LinkStats) {
         if (stats.route != null && stats.route != loggedRoute) {
@@ -1214,6 +1226,20 @@ object CallManager {
             else -> LinkQuality.GOOD
         }
         if (quality != _uiState.value.quality) _uiState.update { it.copy(quality = quality) }
+
+        // Битрейт подстраивается под потери наших пакетов у собеседника; если он
+        // их не сообщает, ориентируемся на потери в обратную сторону.
+        bitrate.onSample(stats.sendLossPercent ?: stats.lossPercent, stats.rttMs)?.let { bps ->
+            pcm?.setMaxAudioBitrate(bps)
+            AppLog.add(TAG, "audio bitrate -> ${bps / 1000} kbit/s (send loss=${stats.sendLossPercent?.toInt()}%, rtt=${stats.rttMs?.toInt()}ms)")
+        }
+
+        stats.concealedPercent?.let {
+            recentConcealment.addLast(it)
+            if (recentConcealment.size > HEARING_WINDOW) recentConcealment.removeFirst()
+        }
+        val hearing = HearingEstimate.of(recentConcealment.takeIf { it.isNotEmpty() }?.average(), stats.audioArrived)
+        if (hearing != _uiState.value.hearing) _uiState.update { it.copy(hearing = hearing) }
     }
 
     private fun humanizeError(raw: String, fallback: String): String {

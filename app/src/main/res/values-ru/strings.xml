@@ -254,4 +254,7 @@
     <string name="check_advice_offline">Ни один релей недоступен: звонки до вас не дойдут. Проверьте интернет и VPN.</string>
     <string name="check_time">Проверено %1$s</string>
     <string name="check_again">Проверить снова</string>
+    <string name="hearing_good">Собеседника слышно хорошо</string>
+    <string name="hearing_fair">Собеседника слышно с перебоями</string>
+    <string name="hearing_poor">Собеседника почти не слышно</string>
 </resources>

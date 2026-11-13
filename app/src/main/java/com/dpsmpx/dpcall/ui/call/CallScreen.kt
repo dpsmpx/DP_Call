@@ -96,6 +96,7 @@ import com.dpsmpx.dpcall.util.CodeValidator
 import kotlinx.coroutines.launch
 import com.dpsmpx.dpcall.call.CallUiState
 import com.dpsmpx.dpcall.call.LinkQuality
+import com.dpsmpx.dpcall.webrtc.HearQuality
 import com.dpsmpx.dpcall.call.SignalResult
 import com.dpsmpx.dpcall.ui.MainActivity
 import com.dpsmpx.dpcall.ui.components.Avatar
@@ -335,6 +336,18 @@ private fun StatusLine(state: CallUiState) {
                     color = if (state.isReconnecting) MaterialTheme.colorScheme.error else muted,
                     modifier = Modifier.padding(top = 6.dp)
                 )
+            }
+            // Слышимость имеет смысл, только пока собеседник говорит в обычном режиме.
+            val hearing = state.hearing.takeIf {
+                note == null && it != HearQuality.UNKNOWN
+            }
+            AnimatedVisibility(visible = hearing != null) {
+                val (text, color) = when (hearing) {
+                    HearQuality.GOOD -> stringResource(R.string.hearing_good) to muted
+                    HearQuality.FAIR -> stringResource(R.string.hearing_fair) to Color(0xFFE0A100)
+                    else -> stringResource(R.string.hearing_poor) to DeclineRed
+                }
+                Text(text, style = MaterialTheme.typography.bodyMedium, color = color, modifier = Modifier.padding(top = 6.dp))
             }
         }
         CallState.ENDED -> {

@@ -255,4 +255,7 @@
     <string name="check_advice_offline">No relay is reachable: calls will not reach you. Check the internet connection and VPN.</string>
     <string name="check_time">Checked %1$s</string>
     <string name="check_again">Check again</string>
+    <string name="hearing_good">You hear them clearly</string>
+    <string name="hearing_fair">Their sound breaks up</string>
+    <string name="hearing_poor">Their sound barely gets through</string>
 </resources>
