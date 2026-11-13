@@ -128,7 +128,7 @@ fun HomeScreen(
     var showInvite by remember { mutableStateOf(false) }
     val tab = state.tab
     val callLog by viewModel.callLog.collectAsStateWithLifecycle()
-    val scanQr = rememberQrScanner { scanned -> viewModel.onAddCodeChange(scanned) }
+    val scanQr = rememberQrScanner { scanned -> viewModel.onCodeFound(scanned, fillAddDialog = viewModel.uiState.value.showAddDialog) }
     var showHelp by remember { mutableStateOf(false) }
     val appSettings = remember { AppSettings.get(context) }
     val onboardingShown by appSettings.onboardingShown.collectAsStateWithLifecycle()
@@ -359,7 +359,28 @@ fun HomeScreen(
     }
 
     if (showQr) {
-        QrDialog(code = state.identity?.value.orEmpty(), onDismiss = { showQr = false })
+        QrDialog(
+            code = state.identity?.value.orEmpty(),
+            onScan = {
+                showQr = false
+                scanQr()
+            },
+            onDismiss = { showQr = false }
+        )
+    }
+
+    state.foundCode?.let { code ->
+        FoundCodeDialog(
+            code = code,
+            contact = state.contacts.firstOrNull { it.code.equals(code, ignoreCase = true) },
+            own = code == state.identity?.value,
+            onCall = { contact ->
+                viewModel.dismissFoundCode()
+                onCall(contact)
+            },
+            onSave = viewModel::saveFoundCode,
+            onDismiss = viewModel::dismissFoundCode
+        )
     }
 
     if (showInvite) {

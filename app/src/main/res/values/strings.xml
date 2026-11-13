@@ -258,4 +258,11 @@
     <string name="hearing_good">You hear them clearly</string>
     <string name="hearing_fair">Their sound breaks up</string>
     <string name="hearing_poor">Their sound barely gets through</string>
+    <string name="scan_their_code">Scan their code</string>
+    <string name="found_new_title">New code</string>
+    <string name="found_new_text">Call right away or save to contacts.</string>
+    <string name="found_known_text">Already in your contacts.</string>
+    <string name="found_own_title">This is your code</string>
+    <string name="found_own_text">Scan the other person\'s code instead.</string>
+    <string name="found_save">Save</string>
 </resources>

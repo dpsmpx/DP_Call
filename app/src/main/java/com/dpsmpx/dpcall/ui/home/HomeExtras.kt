@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.CallMade
 import androidx.compose.material.icons.automirrored.filled.CallMissed
 import androidx.compose.material.icons.automirrored.filled.CallReceived
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PersonAdd
@@ -63,6 +64,7 @@ import com.dpsmpx.dpcall.ui.components.Avatar
 import com.dpsmpx.dpcall.ui.components.shareText
 import com.dpsmpx.dpcall.update.UpdateChecker
 import com.dpsmpx.dpcall.util.CodeValidator
+import com.dpsmpx.dpcall.domain.Contact
 import com.dpsmpx.dpcall.util.Diagnostics
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
@@ -87,12 +89,82 @@ private fun qrBitmap(text: String, size: Int = 720): Bitmap? = try {
 
 /** QR со своим кодом — чтобы собеседник отсканировал его при встрече. */
 @Composable
-fun QrDialog(code: String, onDismiss: () -> Unit) {
+fun QrDialog(code: String, onScan: () -> Unit, onDismiss: () -> Unit) {
     QrCodeDialog(
         content = code,
         title = stringResource(R.string.your_code),
         hint = stringResource(R.string.qr_hint),
-        onDismiss = onDismiss
+        onDismiss = onDismiss,
+        // Встретились лично — обычно сканируют друг друга: второй код под рукой.
+        action = {
+            Button(onClick = onScan) {
+                Icon(Icons.Default.QrCodeScanner, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.scan_their_code))
+            }
+        }
+    )
+}
+
+/**
+ * Отсканированный или присланный код: знакомому контакту — сразу позвонить, новому коду —
+ * позвонить или сохранить. Ничего не происходит без нажатия: код мог прийти из чужого
+ * приложения через «Поделиться».
+ */
+@Composable
+fun FoundCodeDialog(
+    code: String,
+    contact: Contact?,
+    own: Boolean,
+    onCall: (Contact) -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val short = code.take(5) + " … " + code.takeLast(5)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                when {
+                    own -> stringResource(R.string.found_own_title)
+                    contact != null -> contact.name
+                    else -> stringResource(R.string.found_new_title)
+                }
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(short, style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace))
+                Text(
+                    when {
+                        own -> stringResource(R.string.found_own_text)
+                        contact != null -> stringResource(R.string.found_known_text)
+                        else -> stringResource(R.string.found_new_text)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            if (!own) {
+                Button(onClick = { onCall(contact ?: Contact(code = code, name = code.take(5))) }) {
+                    Icon(Icons.Default.Call, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.call_action))
+                }
+            } else {
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
+            }
+        },
+        dismissButton = if (own) null else {
+            {
+                Row {
+                    if (contact == null) TextButton(onClick = onSave) { Text(stringResource(R.string.found_save)) }
+                    TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
+                }
+            }
+        }
     )
 }
 
@@ -164,7 +236,7 @@ private fun QrCodeDialog(
 fun rememberQrScanner(onCode: (String) -> Unit): () -> Unit {
     val prompt = stringResource(R.string.qr_scan_prompt)
     val launcher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.let { onCode(CodeValidator.normalize(it)) }
+        result.contents?.let(onCode)
     }
     return {
         launcher.launch(

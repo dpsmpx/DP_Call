@@ -31,6 +31,35 @@ class CodeAndUpdateTest {
         assertNull(CodeValidator.extract("x" + IdentityGenerator.generate().code))
     }
 
+    @Test
+    fun codeSplitOrDecoratedByMessengersIsFound() {
+        val code = IdentityGenerator.generate().code
+        // Группы по 4 с пробелами, посреди сообщения с латинскими словами вокруг.
+        assertEquals(code, CodeValidator.extract("My DP Call code is ${code.chunked(4).joinToString(" ")} — call me"))
+        // Перенос строки посреди кода и дефисы.
+        assertEquals(code, CodeValidator.extract("код:\n${code.take(26)}\n${code.drop(26)}\nспасибо"))
+        assertEquals(code, CodeValidator.extract(code.chunked(13).joinToString("-")))
+        // Кавычки, разметка, невидимые символы.
+        assertEquals(code, CodeValidator.extract("«`${code.take(10)}\u200B${code.drop(10)}`»"))
+        assertEquals(code, CodeValidator.extract("*${code}*"))
+    }
+
+    @Test
+    fun lookalikeLettersAreFixed() {
+        // Код, в котором нули и единицы набраны буквами O и I/L.
+        var code = IdentityGenerator.generate().code
+        while ('0' !in code || '1' !in code) code = IdentityGenerator.generate().code
+        val typed = code.replace('0', 'O').replace('1', 'l')
+        assertEquals(code, CodeValidator.extract(typed))
+    }
+
+    @Test
+    fun neighbouringWordsAreNotGluedToTheCode() {
+        val code = IdentityGenerator.generate().code
+        // Посторонний кусок через запятую не приклеивается.
+        assertNull(CodeValidator.extract("AB, " + code.drop(2)))
+    }
+
     // ---------------------------------------------------------- обновления
 
     @Test

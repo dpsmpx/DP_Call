@@ -41,7 +41,9 @@ data class HomeUiState(
     val incomingOfferInput: String = "",
     val incomingError: String? = null,
     /** 0 — контакты, 1 — журнал. */
-    val tab: Int = 0
+    val tab: Int = 0,
+    /** Код, полученный сканированием или из «Поделиться»: карточка «Позвонить / Сохранить». */
+    val foundCode: String? = null
 )
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
@@ -111,6 +113,35 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update {
             it.copy(showAddDialog = true, addCodeInput = prefill.orEmpty(), addNameInput = "", addError = null)
         }
+    }
+
+    /**
+     * Код отсканирован или прислан через «Поделиться». Знакомый контакт или новый код
+     * показываются карточкой с выбором; если пользователь уже заполняет «Новый контакт»
+     * ([fillAddDialog]) и код новый — он просто подставляется в форму.
+     */
+    fun onCodeFound(raw: String, fillAddDialog: Boolean = false) {
+        val code = CodeValidator.extract(raw)
+        if (code == null) {
+            if (fillAddDialog) onAddCodeChange(CodeValidator.normalize(raw))
+            return
+        }
+        if (fillAddDialog && isNewCode(code)) {
+            onAddCodeChange(code)
+            return
+        }
+        _uiState.update { it.copy(foundCode = code, showAddDialog = false) }
+    }
+
+    fun dismissFoundCode() {
+        _uiState.update { it.copy(foundCode = null) }
+    }
+
+    /** «Сохранить в контакты» из карточки найденного кода. */
+    fun saveFoundCode() {
+        val code = _uiState.value.foundCode ?: return
+        dismissFoundCode()
+        openAddDialog(code)
     }
 
     private fun isNewCode(code: String): Boolean {

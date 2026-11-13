@@ -257,4 +257,11 @@
     <string name="hearing_good">Собеседника слышно хорошо</string>
     <string name="hearing_fair">Собеседника слышно с перебоями</string>
     <string name="hearing_poor">Собеседника почти не слышно</string>
+    <string name="scan_their_code">Сканировать код</string>
+    <string name="found_new_title">Новый код</string>
+    <string name="found_new_text">Позвоните сразу или сохраните в контакты.</string>
+    <string name="found_known_text">Уже есть в контактах.</string>
+    <string name="found_own_title">Это ваш код</string>
+    <string name="found_own_text">Отсканируйте код собеседника.</string>
+    <string name="found_save">Сохранить</string>
 </resources>
