@@ -41,7 +41,8 @@ object CarrierTransport {
     @Volatile private var lastPeerAt = 0L
     @Volatile private var generation = 0
     // Replaced by a fake in JVM integration tests; production creates the native session lazily.
-    internal var createBackend = CarrierBackendFactory::create
+    internal var createBackend: (ByteArray, Boolean, (String) -> Unit, (ByteArray) -> Unit) -> CarrierBackend =
+        CarrierBackendFactory::create
     private var monitor: Job? = null
     private var closing: Job? = null
     val ready: Boolean get() = _status.value.phase == "peer_ready" && backend != null && System.currentTimeMillis() - lastPeerAt in 0..10_000L
