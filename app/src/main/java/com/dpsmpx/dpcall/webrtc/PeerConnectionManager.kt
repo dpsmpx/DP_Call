@@ -144,6 +144,14 @@ class PeerConnectionManager(
 
     private val collectedCandidates = CopyOnWriteArrayList<IceCandidate>()
 
+    /**
+     * Путь между телефонами (ICE) хотя бы раз был найден. Если при этом соединение не
+     * поднялось, сорвалось шифрованное рукопожатие (DTLS) — это другая блокировка.
+     */
+    @Volatile
+    var iceConnected = false
+        private set
+
     private var lastPacketsLost = 0L
     private var lastConcealed = 0L
     private var lastSamples = 0L
@@ -165,6 +173,11 @@ class PeerConnectionManager(
 
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
                 AppLog.add(TAG, "ice=$state")
+                if (state == PeerConnection.IceConnectionState.CONNECTED ||
+                    state == PeerConnection.IceConnectionState.COMPLETED
+                ) {
+                    iceConnected = true
+                }
             }
 
             override fun onConnectionChange(newState: PeerConnection.PeerConnectionState?) {

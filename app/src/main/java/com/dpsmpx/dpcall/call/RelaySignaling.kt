@@ -93,6 +93,7 @@ object RelaySignaling {
                     onStatus = { connected, total ->
                         if (_status.value.connected != connected) AppLog.add(TAG, "relays connected: $connected/$total")
                         _status.update { it.copy(connected = connected, total = total) }
+                        NetworkRestriction.onRelayStatus(app, connected > 0, probeAllowed = !viaTor)
                     },
                     log = { AppLog.add(TAG, it) }
                 )

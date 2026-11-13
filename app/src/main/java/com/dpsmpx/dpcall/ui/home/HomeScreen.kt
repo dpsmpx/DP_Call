@@ -3,6 +3,8 @@ package com.dpsmpx.dpcall.ui.home
 import androidx.compose.ui.res.stringResource
 import com.dpsmpx.dpcall.R
 import com.dpsmpx.dpcall.call.CallManager
+import com.dpsmpx.dpcall.call.NetworkRestriction
+import com.dpsmpx.dpcall.call.Restriction
 import com.dpsmpx.dpcall.webrtc.CallState
 import com.dpsmpx.dpcall.webrtc.PathCheck
 import com.dpsmpx.dpcall.webrtc.PathProbe
@@ -146,6 +148,7 @@ fun HomeScreen(
         onPauseOrDispose { }
     }
     val pathCheck by PathProbe.result.collectAsStateWithLifecycle()
+    val restriction by NetworkRestriction.state.collectAsStateWithLifecycle()
     var showConnectionCheck by remember { mutableStateOf(false) }
     // Проверка маршрутов (STUN/TURN) — при открытии и после смены сети, не чаще раза в 10 минут.
     LaunchedEffect(resumes) {
@@ -213,7 +216,7 @@ fun HomeScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     item(key = "status") {
-                        ReadinessBanner(readiness, pathCheck, relayStatus.tor) {
+                        ReadinessBanner(readiness, pathCheck, relayStatus.tor, restriction) {
                             when (readiness) {
                                 Readiness.NO_NOTIFICATIONS -> openNotificationSettings(context)
                                 Readiness.BATTERY_RESTRICTED -> requestBatteryExemption(context)
@@ -502,7 +505,13 @@ private fun readinessOf(
 }
 
 @Composable
-private fun ReadinessBanner(readiness: Readiness, path: PathCheck?, tor: TorState?, onClick: () -> Unit) {
+private fun ReadinessBanner(
+    readiness: Readiness,
+    path: PathCheck?,
+    tor: TorState?,
+    restriction: Restriction,
+    onClick: () -> Unit
+) {
     val warning = if (isSystemInDarkTheme()) Color(0xFFFFC04D) else Color(0xFF8A5A00)
     val color = when (readiness) {
         Readiness.READY -> OnlineGreen
@@ -512,9 +521,11 @@ private fun ReadinessBanner(readiness: Readiness, path: PathCheck?, tor: TorStat
     }
     val text = when (readiness) {
         Readiness.READY -> stringResource(if (tor != null) R.string.online_banner_tor else R.string.online_banner)
-        Readiness.OFFLINE -> when (tor) {
-            TorState.STARTING -> stringResource(R.string.tor_starting)
-            TorState.FAILED -> stringResource(R.string.tor_failed)
+        Readiness.OFFLINE -> when {
+            tor == TorState.STARTING -> stringResource(R.string.tor_starting)
+            tor == TorState.FAILED -> stringResource(R.string.tor_failed)
+            restriction == Restriction.MOBILE_WHITELIST -> stringResource(R.string.restricted_mobile)
+            restriction == Restriction.RELAYS_BLOCKED -> stringResource(R.string.restricted_relays)
             else -> stringResource(R.string.listen_offline)
         }
         Readiness.NO_PATH -> stringResource(R.string.ready_no_path)

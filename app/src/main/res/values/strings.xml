@@ -292,4 +292,15 @@
     <string name="tor_starting">Connecting through Tor…</string>
     <string name="tor_failed">Tor does not connect — calls will not reach you</string>
     <string name="online_banner_tor">Online through Tor — you can be called</string>
+    <string name="error_no_path">No path between the phones was found. On a strict network (mobile, VPN) set your own TURN server in Settings → Advanced, or try another network.</string>
+    <string name="error_dtls_blocked">The phones found each other, but the encrypted connection did not start — the network seems to block it. Try another network or a VPN.</string>
+    <string name="restricted_mobile">Mobile internet is restricted (whitelists) — calls will not get through. Use Wi-Fi</string>
+    <string name="restricted_relays">This network blocks the relays — calls will not get through</string>
+    <string name="check_advice_whitelist">Mobile internet works in whitelist mode: only approved sites open, and the relays and the other phone are out of reach. Connect to Wi-Fi or home internet — calls work there. Both people need such a connection.</string>
+    <string name="check_advice_relays_blocked">The internet works, but none of the relays is reachable on this network. Try another network or a VPN, or add other relays in Settings → Advanced.</string>
+    <string name="network_test_open">Detailed network test</string>
+    <string name="network_test_title">Network test</string>
+    <string name="network_test_desc">Checks each relay (including whether the connection freezes after the first kilobytes), STUN and TURN servers and a whitelisted site. Takes about a minute. The report contains no IP addresses; share it to help find what works on your network.</string>
+    <string name="network_test_running">Testing…</string>
+    <string name="network_test_share">Share report</string>
 </resources>

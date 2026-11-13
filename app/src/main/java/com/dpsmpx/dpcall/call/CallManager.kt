@@ -1033,7 +1033,11 @@ object CallManager {
                     AppLog.add(TAG, "ICE failed before connect, waiting ${grace / 1000}s for late candidates")
                     main.postDelayed({
                         if (gen == generation && state.isActive && _uiState.value.connectedAt == 0L) {
-                            fail(app.getString(R.string.error_no_connection))
+                            // Путь найден, а соединения нет — сорвалось рукопожатие DTLS (в России
+                            // его режут по «отпечатку»); иначе не нашёлся сам путь (STUN/TURN).
+                            val dtls = pcm?.iceConnected == true
+                            AppLog.add(TAG, if (dtls) "failed: DTLS after ICE connected" else "failed: no ICE path")
+                            fail(app.getString(if (dtls) R.string.error_dtls_blocked else R.string.error_no_path))
                         }
                     }, grace)
                 }
