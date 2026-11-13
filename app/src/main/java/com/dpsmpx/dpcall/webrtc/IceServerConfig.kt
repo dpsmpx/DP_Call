@@ -14,7 +14,7 @@ object IceServerConfig {
     // Open Relay Project (Metered), вариант со статическими учётными данными.
     // Прежний адрес openrelay.metered.ca отключён: из-за него сбор маршрутов
     // зависал, а соединение через NAT/VPN не устанавливалось.
-    private const val TURN_HOST = "staticauth.openrelay.metered.ca"
+    const val TURN_HOST = "staticauth.openrelay.metered.ca"
     private const val TURN_USER = "openrelayproject"
     private const val TURN_PASSWORD = "openrelayprojectsecret"
 

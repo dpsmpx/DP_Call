@@ -64,6 +64,17 @@ object Diagnostics {
             appendLine("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}), ${Build.MANUFACTURER} ${Build.MODEL}")
             appendLine("Report time: ${timestamp()}")
             appendLine()
+            appendLine("--- Relays ---")
+            val relays = com.dpsmpx.dpcall.call.RelaySignaling.relayStates()
+            appendLine(relays.joinToString("\n") { r ->
+                val state = when {
+                    r.benched -> "benched"
+                    !r.active -> "idle"
+                    r.open -> "open"
+                    else -> "connecting"
+                }
+                "${r.url}${if (r.spare) " (spare)" else ""}: $state, accepted=${r.accepted}"
+            }.ifBlank { "not started" })
             appendLine("--- Crashes ---")
             appendLine(AppLog.scrub(crashes).ifBlank { "none" })
             appendLine("--- Call events ---")

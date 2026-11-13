@@ -14,6 +14,8 @@ import java.util.Base64
 class RelayMessenger(
     private val keys: IdentityKeys,
     relays: List<String> = RelayPool.DEFAULT_RELAYS,
+    /** Запасные релеи на случай, когда основные подводят. */
+    spares: List<String> = emptyList(),
     private val onMessage: (fromCode: String, message: CallMessage) -> Unit,
     /** Забирать с релеев отметки о звонках, пропущенных, пока нас не было на связи. */
     receiveMissed: Boolean = false,
@@ -24,6 +26,7 @@ class RelayMessenger(
 
     private val pool = RelayPool(
         urls = relays,
+        spares = spares,
         inboxTag = Envelope.inboxTag(keys.public),
         kind = NostrEvent.KIND_CALL_SIGNAL,
         storedKind = NostrEvent.KIND_MISSED_CALL.takeIf { receiveMissed },
@@ -34,6 +37,8 @@ class RelayMessenger(
     )
 
     val connectedCount: Int get() = pool.connectedCount
+
+    fun relayStates(): List<RelayPool.RelayState> = pool.snapshot()
 
     fun start() = pool.start()
     fun stop() = pool.stop()

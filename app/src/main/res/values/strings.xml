@@ -232,4 +232,27 @@
     <string name="share_code_text">My DP Call code:\n%1$s\n\nNo DP Call yet? Download for Android: %2$s\nAbout the app: %3$s</string>
     <string name="invite_qr_hint">Have the other person point their phone camera at the code — the DP Call download opens. Or send them the link.</string>
     <string name="invite_send_link">Send link</string>
+    <!-- Проверка связи -->
+    <string name="ready_no_path">The network blocks calls: no direct path and no TURN</string>
+    <string name="ready_no_turn">TURN unavailable — on some networks a call may not connect</string>
+    <string name="check_title">Connection check</string>
+    <string name="check_relays">Relays</string>
+    <string name="check_relays_value">%1$d of %2$d online</string>
+    <string name="check_relays_spare">, incl. spare</string>
+    <string name="check_running">Checking the network…</string>
+    <string name="check_direct">Direct path</string>
+    <string name="check_direct_yes">available</string>
+    <string name="check_direct_no">not found</string>
+    <string name="check_turn">TURN relay</string>
+    <string name="check_turn_yes">available</string>
+    <string name="check_turn_no">unavailable</string>
+    <string name="check_own_turn">Your TURN server</string>
+    <string name="check_own_turn_yes">responds</string>
+    <string name="check_own_turn_no">does not respond</string>
+    <string name="check_advice_ok">Calls should connect on this network.</string>
+    <string name="check_advice_no_turn">Calls connect when at least one side has a direct path. If the other person is behind a strict network or VPN, set your own TURN server in Settings → Advanced.</string>
+    <string name="check_advice_blocked">Sound cannot get through this network. Try another network, turn the VPN off or set your own TURN server in Settings → Advanced.</string>
+    <string name="check_advice_offline">No relay is reachable: calls will not reach you. Check the internet connection and VPN.</string>
+    <string name="check_time">Checked %1$s</string>
+    <string name="check_again">Check again</string>
 </resources>

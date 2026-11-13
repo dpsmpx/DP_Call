@@ -54,7 +54,7 @@ class LiveRelayTest {
     @Test
     fun eachDefaultRelayDeliversCalls() {
         assumeTrue(System.getenv("DPCALL_LIVE_RELAYS") == "1")
-        val candidates = RelayPool.DEFAULT_RELAYS + (System.getenv("DPCALL_EXTRA_RELAYS")?.split(',') ?: emptyList())
+        val candidates = RelayPool.DEFAULT_RELAYS + RelayPool.SPARE_RELAYS + (System.getenv("DPCALL_EXTRA_RELAYS")?.split(',') ?: emptyList())
         val results = candidates.associateWith { relay ->
             try {
                 deliver(listOf(relay))
@@ -66,6 +66,34 @@ class LiveRelayTest {
         results.forEach { (relay, ms) -> println("LIVE $relay -> ${ms?.let { "delivered in $it ms" } ?: "FAILED"}") }
         val working = RelayPool.DEFAULT_RELAYS.count { results[it] != null }
         assertTrue("only $working default relays work", working >= RelayPool.DEFAULT_RELAYS.size - 1)
+    }
+
+    /**
+     * Пул отстраняет релей, который не отвечает OK на отправленные события, — поэтому
+     * каждый релей из списков должен их подтверждать.
+     */
+    @Test
+    fun eachRelayConfirmsEvents() {
+        assumeTrue(System.getenv("DPCALL_LIVE_RELAYS") == "1")
+        val failed = (RelayPool.DEFAULT_RELAYS + RelayPool.SPARE_RELAYS).filter { relay ->
+            val alice = IdentityGenerator.generate()
+            val online = CountDownLatch(1)
+            val messenger = RelayMessenger(alice, listOf(relay), onMessage = { _, _ -> },
+                onStatus = { connected, _ -> if (connected > 0) online.countDown() })
+            try {
+                messenger.start()
+                if (!online.await(15, TimeUnit.SECONDS)) return@filter true
+                messenger.send(IdentityGenerator.generate().code, CallMessage(CallMessage.OFFER, "ack", "DPCALL1.O.test"))
+                val deadline = System.currentTimeMillis() + 8_000
+                while (System.currentTimeMillis() < deadline && messenger.relayStates().first().accepted == 0) Thread.sleep(200)
+                val accepted = messenger.relayStates().first().accepted
+                println("LIVE $relay -> ack ${if (accepted > 0) "OK" else "MISSING"}")
+                accepted == 0
+            } finally {
+                messenger.stop()
+            }
+        }
+        assertTrue("no OK from $failed", failed.isEmpty())
     }
 
     @Test

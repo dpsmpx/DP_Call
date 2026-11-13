@@ -231,4 +231,27 @@
     <string name="share_code_text">Мой код DP Call:\n%1$s\n\nЕщё нет DP Call? Скачать для Android: %2$s\nО приложении: %3$s</string>
     <string name="invite_qr_hint">Пусть собеседник наведёт камеру телефона на код — откроется скачивание DP Call. Или отправьте ему ссылку.</string>
     <string name="invite_send_link">Отправить ссылку</string>
+    <!-- Проверка связи -->
+    <string name="ready_no_path">Сеть не пропускает звонки: нет ни прямого пути, ни TURN</string>
+    <string name="ready_no_turn">TURN недоступен — в некоторых сетях звонок может не соединиться</string>
+    <string name="check_title">Проверка связи</string>
+    <string name="check_relays">Релеи</string>
+    <string name="check_relays_value">%1$d из %2$d на связи</string>
+    <string name="check_relays_spare">, есть запасные</string>
+    <string name="check_running">Проверяем сеть…</string>
+    <string name="check_direct">Прямой путь</string>
+    <string name="check_direct_yes">есть</string>
+    <string name="check_direct_no">не найден</string>
+    <string name="check_turn">Ретранслятор TURN</string>
+    <string name="check_turn_yes">доступен</string>
+    <string name="check_turn_no">недоступен</string>
+    <string name="check_own_turn">Ваш TURN-сервер</string>
+    <string name="check_own_turn_yes">отвечает</string>
+    <string name="check_own_turn_no">не отвечает</string>
+    <string name="check_advice_ok">В этой сети звонки должны соединяться.</string>
+    <string name="check_advice_no_turn">Звонок соединится, если прямой путь есть хотя бы у одного из собеседников. Если собеседник за строгой сетью или VPN, укажите свой TURN-сервер: Настройки → Дополнительно.</string>
+    <string name="check_advice_blocked">Звук не проходит через эту сеть. Попробуйте другую сеть, отключите VPN или укажите свой TURN-сервер: Настройки → Дополнительно.</string>
+    <string name="check_advice_offline">Ни один релей недоступен: звонки до вас не дойдут. Проверьте интернет и VPN.</string>
+    <string name="check_time">Проверено %1$s</string>
+    <string name="check_again">Проверить снова</string>
 </resources>

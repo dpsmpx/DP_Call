@@ -2,6 +2,10 @@ package com.dpsmpx.dpcall.ui.home
 
 import androidx.compose.ui.res.stringResource
 import com.dpsmpx.dpcall.R
+import com.dpsmpx.dpcall.call.CallManager
+import com.dpsmpx.dpcall.webrtc.CallState
+import com.dpsmpx.dpcall.webrtc.PathCheck
+import com.dpsmpx.dpcall.webrtc.PathProbe
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
@@ -139,8 +143,14 @@ fun HomeScreen(
         resumes++
         onPauseOrDispose { }
     }
-    val readiness = remember(relayStatus.online, background, resumes) {
-        readinessOf(context, relayStatus.online, background)
+    val pathCheck by PathProbe.result.collectAsStateWithLifecycle()
+    var showConnectionCheck by remember { mutableStateOf(false) }
+    // Проверка маршрутов (STUN/TURN) — при открытии и после смены сети, не чаще раза в 10 минут.
+    LaunchedEffect(resumes) {
+        PathProbe.runIfStale(context, busy = CallManager.uiState.value.state != CallState.IDLE)
+    }
+    val readiness = remember(relayStatus.online, background, resumes, pathCheck) {
+        readinessOf(context, relayStatus.online, background, pathCheck)
     }
     // Журнал открыт — пропущенные просмотрены.
     LaunchedEffect(tab, unseenMissed) {
@@ -199,10 +209,11 @@ fun HomeScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     item(key = "status") {
-                        ReadinessBanner(readiness) {
+                        ReadinessBanner(readiness, pathCheck) {
                             when (readiness) {
                                 Readiness.NO_NOTIFICATIONS -> openNotificationSettings(context)
                                 Readiness.BATTERY_RESTRICTED -> requestBatteryExemption(context)
+                                Readiness.READY, Readiness.NO_PATH, Readiness.OFFLINE -> showConnectionCheck = true
                                 else -> showSettings = true
                             }
                         }
@@ -361,6 +372,10 @@ fun HomeScreen(
         )
     }
 
+    if (showConnectionCheck) {
+        ConnectionCheckDialog(relayStatus, pathCheck, onDismiss = { showConnectionCheck = false })
+    }
+
     if (showSettings) {
         SettingsDialog(
             relayStatus = relayStatus,
@@ -432,14 +447,16 @@ fun HomeScreen(
 private val OnlineGreen = Color(0xFF2E9E5B)
 
 /** Насколько приложение готово принять звонок. Порядок — от самого серьёзного препятствия. */
-private enum class Readiness { OFFLINE, NO_NOTIFICATIONS, BACKGROUND_OFF, BATTERY_RESTRICTED, READY }
+private enum class Readiness { OFFLINE, NO_PATH, NO_NOTIFICATIONS, BACKGROUND_OFF, BATTERY_RESTRICTED, READY }
 
 /**
  * Соединения с релеями мало: звонок не дойдёт, если Android усыпит приложение, и останется
- * незамеченным без уведомлений. Плашка зелёная, только когда выполнено всё.
+ * незамеченным без уведомлений, а без прямого пути и TURN не соединится. Плашка зелёная,
+ * только когда выполнено всё.
  */
-private fun readinessOf(context: Context, online: Boolean, background: Boolean): Readiness = when {
+private fun readinessOf(context: Context, online: Boolean, background: Boolean, path: PathCheck?): Readiness = when {
     !online -> Readiness.OFFLINE
+    path?.blocked == true -> Readiness.NO_PATH
     !CallNotifications.canPostNotifications(context) -> Readiness.NO_NOTIFICATIONS
     !background -> Readiness.BACKGROUND_OFF
     !isBatteryUnrestricted(context) -> Readiness.BATTERY_RESTRICTED
@@ -447,7 +464,7 @@ private fun readinessOf(context: Context, online: Boolean, background: Boolean):
 }
 
 @Composable
-private fun ReadinessBanner(readiness: Readiness, onClick: () -> Unit) {
+private fun ReadinessBanner(readiness: Readiness, path: PathCheck?, onClick: () -> Unit) {
     val warning = if (isSystemInDarkTheme()) Color(0xFFFFC04D) else Color(0xFF8A5A00)
     val color = when (readiness) {
         Readiness.READY -> OnlineGreen
@@ -457,6 +474,7 @@ private fun ReadinessBanner(readiness: Readiness, onClick: () -> Unit) {
     val text = when (readiness) {
         Readiness.READY -> stringResource(R.string.online_banner)
         Readiness.OFFLINE -> stringResource(R.string.listen_offline)
+        Readiness.NO_PATH -> stringResource(R.string.ready_no_path)
         Readiness.NO_NOTIFICATIONS -> stringResource(R.string.ready_no_notifications)
         Readiness.BACKGROUND_OFF -> stringResource(R.string.ready_background_off)
         Readiness.BATTERY_RESTRICTED -> stringResource(R.string.ready_battery_restricted)
@@ -465,7 +483,17 @@ private fun ReadinessBanner(readiness: Readiness, onClick: () -> Unit) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).background(color, CircleShape))
             Spacer(Modifier.width(10.dp))
-            Text(text, style = MaterialTheme.typography.labelLarge, color = color, modifier = Modifier.weight(1f, fill = false))
+            Column(Modifier.weight(1f, fill = false)) {
+                Text(text, style = MaterialTheme.typography.labelLarge, color = color)
+                // Готов, но без TURN: в сетях, где прямой путь закрыт, звонок может не соединиться.
+                if (readiness == Readiness.READY && path != null && !path.turn) {
+                    Text(
+                        stringResource(R.string.ready_no_turn),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
             if (readiness != Readiness.READY && readiness != Readiness.OFFLINE) {
                 Spacer(Modifier.width(6.dp))
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, stringResource(R.string.fix), Modifier.size(18.dp), tint = color)

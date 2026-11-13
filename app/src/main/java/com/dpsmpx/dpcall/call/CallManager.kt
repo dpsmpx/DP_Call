@@ -127,10 +127,16 @@ object CallManager {
     private const val RESTART_GATHER_TIMEOUT_MS = 4_000L
     private const val ENDED_SCREEN_MS = 1_800L
     private const val AUTO_OFFER_MAX_AGE_MS = 30 * 60_000L
-    private const val OFFER_RESEND_MS = 5_000L
-    private const val OFFER_RESEND_ATTEMPTS = 9
-    private const val ANSWER_RESEND_MS = 3_000L
-    private const val ANSWER_RESEND_ATTEMPTS = 5
+    /**
+     * Паузы между повторами приглашения: чаще в первые секунды, когда собеседник,
+     * скорее всего, на связи и потерялось одно сообщение; всего около 45 секунд.
+     */
+    private val OFFER_RESEND_DELAYS = listOf(1_500L, 2_500L, 4_000L) + List(7) { 5_000L }
+    private val ANSWER_RESEND_DELAYS = listOf(1_000L, 1_500L, 2_500L, 3_000L, 3_000L, 3_000L)
+    /** Повторы списка маршрутов: каждое сообщение может потеряться по пути. */
+    private val CANDIDATE_RESEND_DELAYS = listOf(1_500L, 3_000L)
+    /** Нет ни одного релея: проверяем связь чаще, но не дольше общего срока повторов. */
+    private const val NO_RELAY_RETRY_MS = 1_000L
     private const val NO_ANSWER_TIMEOUT_MS = 65_000L
     /** С запасом на неточные часы устройств; повторы отсекаются по идентификатору звонка. */
     private const val RELAY_MESSAGE_MAX_AGE_MS = 5 * 60_000L
@@ -177,6 +183,7 @@ object CallManager {
     private var useFallbackRouting = false
     private var statsJob: Job? = null
     private var resendJob: Job? = null
+    private var candidateResendJob: Job? = null
 
     // Пересогласование соединения (ICE restart) при смене сети или обрыве.
     private enum class Restart { NONE, OFFERING, ANSWERING }
@@ -571,28 +578,45 @@ object CallManager {
         sendToPeer(CallMessage.MISSED)
     }
 
-    /** Отправляет служебное сообщение собеседнику текущего звонка. */
-    private fun sendToPeer(type: String, signal: String? = null) {
+    /**
+     * Отправляет служебное сообщение собеседнику текущего звонка.
+     * @return сколько релеев его приняли.
+     */
+    private fun sendToPeer(type: String, signal: String? = null): Int {
         val code = _uiState.value.contactCode
         if (callId.isBlank() || !CodeValidator.isValid(code)) {
             AppLog.add(TAG, "relay out: $type SKIPPED (callId blank=${callId.isBlank()}, code valid=${CodeValidator.isValid(code)})")
-            return
+            return 0
         }
         val accepted = RelaySignaling.send(code, CallMessage(type, callId, signal))
         AppLog.add(TAG, "relay out: $type call=${callId.take(6)} signal=${signal?.length ?: 0} relays=$accepted")
+        return accepted
     }
 
-    /** Повторяет сообщение: события эфемерны, а собеседник мог быть не на связи. */
-    private fun startResend(type: String, signal: () -> String?, attempts: Int, intervalMs: Long, done: () -> Boolean, onExhausted: () -> Unit = {}) {
+    /**
+     * Повторяет сообщение: события эфемерны, а собеседник мог быть не на связи.
+     * Пока не подключён ни один релей, отправка пробуется каждую секунду, но общий
+     * срок повторов от этого не растёт.
+     */
+    private fun startResend(type: String, signal: () -> String?, delays: List<Long>, done: () -> Boolean, onExhausted: () -> Unit = {}) {
         resendJob?.cancel()
         if (!CodeValidator.isValid(_uiState.value.contactCode)) return
         val gen = generation
         resendJob = scope.launch {
-            repeat(attempts) {
+            var budget = delays.sum()
+            var index = 0
+            while (budget > 0) {
                 if (gen != generation || done()) return@launch
                 // Каждый повтор собирается заново — с маршрутами, найденными к этому моменту.
-                signal()?.let { sendToPeer(type, it) }
-                delay(intervalMs)
+                val accepted = signal()?.let { sendToPeer(type, it) } ?: 0
+                val pause = if (accepted == 0) {
+                    RelaySignaling.reconnectNow()
+                    NO_RELAY_RETRY_MS
+                } else {
+                    delays.getOrElse(index++) { delays.last() }
+                }.coerceAtMost(budget)
+                delay(pause)
+                budget -= pause
             }
             if (gen == generation && !done()) onExhausted()
         }
@@ -859,7 +883,7 @@ object CallManager {
         // Автоматическая доставка через релеи; ручная отправка остаётся запасным путём.
         if (isOffer) {
             startResend(
-                CallMessage.OFFER, ::buildLocalSignal, OFFER_RESEND_ATTEMPTS, OFFER_RESEND_MS,
+                CallMessage.OFFER, ::buildLocalSignal, OFFER_RESEND_DELAYS,
                 done = { state != CallState.WAITING_FOR_ANSWER || _uiState.value.remoteRinging },
                 onExhausted = {
                     // Отметку оставляем сразу: звонящий может просто закрыть приложение.
@@ -880,7 +904,7 @@ object CallManager {
             }, SLOW_REACH_MS)
         } else {
             startResend(
-                CallMessage.ANSWER, ::buildLocalSignal, ANSWER_RESEND_ATTEMPTS, ANSWER_RESEND_MS,
+                CallMessage.ANSWER, ::buildLocalSignal, ANSWER_RESEND_DELAYS,
                 done = { state != CallState.CONNECTING }
             )
         }
@@ -908,10 +932,18 @@ object CallManager {
         sentCandidateCount = candidates.size
         AppLog.add(TAG, "local candidates now: ${manager.localCandidateSummary()}")
         // Отправляем весь список, а не только новые: сообщения эфемерны и могут теряться.
-        sendToPeer(
-            CallMessage.CANDIDATES,
-            candidates.joinToString("\n") { "${it.sdpMid}|${it.sdpMLineIndex}|${it.sdp}" }
-        )
+        val list = candidates.joinToString("\n") { "${it.sdpMid}|${it.sdpMLineIndex}|${it.sdp}" }
+        sendToPeer(CallMessage.CANDIDATES, list)
+        // Тот же список ещё пару раз, пока соединения нет; новый список заменяет повторы.
+        candidateResendJob?.cancel()
+        val gen = generation
+        candidateResendJob = scope.launch {
+            for (pause in CANDIDATE_RESEND_DELAYS) {
+                delay(pause)
+                if (gen != generation || state == CallState.CONNECTED || !state.isActive || restart != Restart.NONE) return@launch
+                sendToPeer(CallMessage.CANDIDATES, list)
+            }
+        }
         // Приглашение для ручной отправки тоже должно содержать все маршруты.
         if (_uiState.value.signalToCopy != null) {
             buildLocalSignal()?.let { fresh -> _uiState.update { it.copy(signalToCopy = fresh) } }
@@ -1203,6 +1235,8 @@ object CallManager {
         statsJob = null
         resendJob?.cancel()
         resendJob = null
+        candidateResendJob?.cancel()
+        candidateResendJob = null
         remoteDescriptionSet = false
         pendingRemoteCandidates.clear()
         appliedRemoteCandidates.clear()

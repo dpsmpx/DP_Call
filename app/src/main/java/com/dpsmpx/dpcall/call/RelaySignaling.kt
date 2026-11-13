@@ -10,6 +10,7 @@ import android.util.Log
 import com.dpsmpx.dpcall.data.AppSettings
 import com.dpsmpx.dpcall.data.IdentityRepository
 import com.dpsmpx.dpcall.util.AppLog
+import com.dpsmpx.dpcall.webrtc.PathProbe
 import com.dpsmpx.dpcall.signaling.relay.CallMessage
 import com.dpsmpx.dpcall.signaling.relay.RelayMessenger
 import com.dpsmpx.dpcall.signaling.relay.RelayPool
@@ -57,6 +58,8 @@ object RelaySignaling {
                 val created = RelayMessenger(
                     keys = keys,
                     relays = relays,
+                    // Свой список релеев пользователь задаёт сознательно — запасные не добавляем.
+                    spares = if (relays == RelayPool.DEFAULT_RELAYS) RelayPool.SPARE_RELAYS else emptyList(),
                     receiveMissed = AppSettings.get(app).missedNotices.value,
                     onMessage = { from, message -> main.post { CallManager.onRelayMessage(from, message) } },
                     onStatus = { connected, total ->
@@ -84,6 +87,7 @@ object RelaySignaling {
             cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
                     messenger?.reconnectNow()
+                    PathProbe.markStale()
                     main.post { CallManager.onNetworkChanged() }
                 }
             })
@@ -104,6 +108,9 @@ object RelaySignaling {
     fun reconnectNow() {
         messenger?.reconnectNow()
     }
+
+    /** Состояние каждого релея — для диагностики. */
+    fun relayStates(): List<RelayPool.RelayState> = messenger?.relayStates() ?: emptyList()
 
     /** @return сколько релеев приняли сообщение (0 — доставить сейчас нельзя). */
     fun send(toCode: String, message: CallMessage): Int = try {
