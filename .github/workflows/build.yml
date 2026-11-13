@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       # Сторонние действия закреплены по хешу коммита: тег можно переставить, хеш — нет.
@@ -43,7 +43,7 @@ jobs:
 
       - name: Build experimental carrier (pinned upstream, Go race tests)
         run: |
-          sdkmanager "ndk;29.0.14206865"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865"
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
           export CGO_LDFLAGS="-Wl,-z,max-page-size=16384"
           ./carrier/build.sh

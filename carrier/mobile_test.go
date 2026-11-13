@@ -2,6 +2,7 @@ package mobile
 
 import (
 	"bytes"
+	"github.com/kulikov0/headless-client/webrtc"
 	"github.com/pion/turn/v4"
 	"net"
 	"testing"
@@ -30,8 +31,12 @@ func pair(t *testing.T) (*Session, *Session, *callbacks, *callbacks) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	x.mu.Lock()
 	x.tun = &wire{y.receive}
+	x.mu.Unlock()
+	y.mu.Lock()
 	y.tun = &wire{x.receive}
+	y.mu.Unlock()
 	t.Cleanup(x.Close)
 	t.Cleanup(y.Close)
 	return x, y, a, b
@@ -126,4 +131,100 @@ func TestTURNRelaysPacketsBothWaysWithoutInternet(t *testing.T) {
 	// The local relay must never send a packet to an actual public destination.
 	_, err := rx.WriteTo([]byte("blocked"), &net.UDPAddr{IP: net.ParseIP("203.0.113.1"), Port: 1234})
 	_ = err // TURN permissions reject or discard it; the virtual PacketConn has no external socket.
+}
+
+func TestDTLSDataChannelThroughVirtualTURN(t *testing.T) {
+	x, y, _, _ := pair(t)
+	create := func(s *Session) *webrtc.PeerConnection {
+		pc, err := webrtc.NewPeerConnection(webrtc.Configuration{ICEServers: []webrtc.ICEServer{{URLs: []string{s.TurnURL()}, Username: s.Username(), Credential: s.Password()}}, ICETransportPolicy: webrtc.ICETransportPolicyRelay})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { pc.Close() })
+		return pc
+	}
+	a, b := create(x), create(y)
+	got := make(chan string, 1)
+	b.OnDataChannel(func(dc *webrtc.DataChannel) {
+		dc.OnMessage(func(m webrtc.DataChannelMessage) { got <- string(m.Data) })
+	})
+	dc, err := a.CreateDataChannel("test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dc.OnOpen(func() { dc.SendText("end-to-end DTLS through carrier") })
+	offer, err := a.CreateOffer(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gathered := webrtc.GatheringCompletePromise(a)
+	if err = a.SetLocalDescription(offer); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-gathered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("offer ICE timeout")
+	}
+	if err = b.SetRemoteDescription(*a.LocalDescription()); err != nil {
+		t.Fatal(err)
+	}
+	answer, err := b.CreateAnswer(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gathered = webrtc.GatheringCompletePromise(b)
+	if err = b.SetLocalDescription(answer); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-gathered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("answer ICE timeout")
+	}
+	if err = a.SetRemoteDescription(*b.LocalDescription()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case text := <-got:
+		if text != "end-to-end DTLS through carrier" {
+			t.Fatal(text)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("DTLS data channel did not connect")
+	}
+}
+func TestEchoAndReplayRejected(t *testing.T) {
+	x, y, a, b := pair(t)
+	recorded := make(chan []byte, 1)
+	x.mu.Lock()
+	x.tun = &wire{func(raw []byte) { recorded <- append([]byte(nil), raw...) }}
+	x.mu.Unlock()
+	if !x.SendSignal([]byte("authenticated")) {
+		t.Fatal("not queued")
+	}
+	var raw []byte
+	select {
+	case raw = <-recorded:
+	case <-time.After(time.Second):
+		t.Fatal("not sent")
+	}
+	x.receive(raw) // Own SFU self-view must not prove peer readiness or deliver a signal.
+	select {
+	case <-a.signals:
+		t.Fatal("accepted own echo")
+	default:
+	}
+	y.receive(raw)
+	y.receive(raw)
+	select {
+	case <-b.signals:
+	case <-time.After(time.Second):
+		t.Fatal("not received")
+	}
+	select {
+	case <-b.signals:
+		t.Fatal("accepted replay")
+	default:
+	}
 }

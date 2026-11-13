@@ -5,6 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -30,21 +31,25 @@ type Callbacks interface {
 }
 
 type Session struct {
-	mu       sync.Mutex
-	cb       Callbacks
-	aead     cipher.AEAD
-	tun      tunnel.DataTunnel
-	closer   interface{ Close() }
-	server   *turn.Server
-	control  net.PacketConn
-	relays   map[int]*packetConn
-	nextPort int
-	localIP  net.IP
-	remoteIP net.IP
-	user     string
-	password string
-	closed   bool
-	stop     chan struct{}
+	mu          sync.Mutex
+	cb          Callbacks
+	aead        cipher.AEAD
+	receiveAEAD cipher.AEAD
+	out         chan []byte
+	seen        map[string]bool
+	seenOrder   []string
+	tun         tunnel.DataTunnel
+	closer      interface{ Close() }
+	server      *turn.Server
+	control     net.PacketConn
+	relays      map[int]*packetConn
+	nextPort    int
+	localIP     net.IP
+	remoteIP    net.IP
+	user        string
+	password    string
+	closed      bool
+	stop        chan struct{}
 }
 
 // NewSession only opens a loopback TURN listener. Start joins the remote room.
@@ -52,15 +57,28 @@ func NewSession(key []byte, first bool, cb Callbacks) (*Session, error) {
 	if len(key) != 32 || cb == nil {
 		return nil, errors.New("invalid carrier configuration")
 	}
-	block, err := aes.NewCipher(key)
+	// Directional keys prevent an SFU self-view from authenticating our own echo.
+	sendLabel, receiveLabel := byte(0), byte(1)
+	if !first {
+		sendLabel, receiveLabel = receiveLabel, sendLabel
+	}
+	makeAEAD := func(label byte) (cipher.AEAD, error) {
+		digest := sha256.Sum256(append(append([]byte(nil), key...), label))
+		block, err := aes.NewCipher(digest[:])
+		if err != nil {
+			return nil, err
+		}
+		return cipher.NewGCM(block)
+	}
+	aead, err := makeAEAD(sendLabel)
 	if err != nil {
 		return nil, err
 	}
-	aead, err := cipher.NewGCM(block)
+	receiveAEAD, err := makeAEAD(receiveLabel)
 	if err != nil {
 		return nil, err
 	}
-	s := &Session{cb: cb, aead: aead, relays: map[int]*packetConn{}, nextPort: 40000, stop: make(chan struct{})}
+	s := &Session{cb: cb, aead: aead, receiveAEAD: receiveAEAD, out: make(chan []byte, 256), seen: map[string]bool{}, relays: map[int]*packetConn{}, nextPort: 40000, stop: make(chan struct{})}
 	s.localIP = net.ParseIP("198.18.0.1")
 	s.remoteIP = net.ParseIP("198.18.0.2")
 	if !first {
@@ -87,6 +105,7 @@ func NewSession(key []byte, first bool, cb Callbacks) (*Session, error) {
 		s.control.Close()
 		return nil, err
 	}
+	go s.writeLoop()
 	return s, nil
 }
 func (s *Session) TurnURL() string {
@@ -117,19 +136,7 @@ func (s *Session) run(provider, room string) {
 		t.SetOnData(s.receive)
 		t.SetOnClose(func() { s.EmitStatus("reconnecting") })
 		s.EmitStatus("room_connected")
-		// A room connection alone does not prove the other phone is reachable.
-		go func() {
-			ticker := time.NewTicker(time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-s.stop:
-					return
-				case <-ticker.C:
-					s.send(0, nil)
-				}
-			}
-		}()
+
 	}
 	switch provider {
 	case "telemost":
@@ -143,7 +150,7 @@ func (s *Session) run(provider, room string) {
 		}
 		s.closer = j
 		s.mu.Unlock()
-		params, _ := json.Marshal(map[string]any{"joinLink": room, "displayName": "DP Call", "vp8Fps": 24, "vp8Batch": 2, "reliable": false})
+		params, _ := json.Marshal(map[string]any{"joinLink": room, "displayName": "DP Call", "vp8Fps": 24, "vp8Batch": 4, "reliable": false})
 		j.RunWithParams(string(params))
 	case "vk":
 		auth, err := joiner.RunVKAuth(room, "DP Call", logFn, s.EmitStatus, nil, nil)
@@ -159,7 +166,7 @@ func (s *Session) run(provider, room string) {
 		// Both peers must derive the upstream frame key from the same original URL.
 		params["tunnelMode"] = "video"
 		params["vp8Fps"] = 24
-		params["vp8Batch"] = 2
+		params["vp8Batch"] = 4
 		params["reliable"] = false
 		j := joiner.NewVKHeadlessJoiner(logFn, nil, s, nil, pion.AddTunnelTracks, pion.ReadTrack)
 		j.MarkConfigAcked()
@@ -195,24 +202,61 @@ func (s *Session) send(kind byte, body []byte) bool {
 	if t == nil || closed {
 		return false
 	}
-	t.SendData(sealed)
-	return true
+	select {
+	case s.out <- sealed:
+		return true
+	default:
+		return false
+	}
+}
+
+// The bounded queue keeps JNI callers and the local TURN loop responsive on SFU stalls.
+func (s *Session) writeLoop() {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-ticker.C:
+			s.send(0, nil)
+		case raw := <-s.out:
+			s.mu.Lock()
+			t := s.tun
+			closed := s.closed
+			s.mu.Unlock()
+			if closed {
+				return
+			}
+			if t != nil {
+				t.SendData(raw)
+			}
+		}
+	}
 }
 func (s *Session) SendSignal(data []byte) bool { return s.send(1, data) }
 func (s *Session) receive(raw []byte) {
-	if len(raw) < s.aead.NonceSize()+s.aead.Overhead()+1 || len(raw) > maxFrame {
+	if len(raw) < s.receiveAEAD.NonceSize()+s.receiveAEAD.Overhead()+1 || len(raw) > maxFrame {
 		return
 	}
-	plain, err := s.aead.Open(nil, raw[:s.aead.NonceSize()], raw[s.aead.NonceSize():], frameAAD)
+	nonce := raw[:s.receiveAEAD.NonceSize()]
+	plain, err := s.receiveAEAD.Open(nil, nonce, raw[s.receiveAEAD.NonceSize():], frameAAD)
 	if err != nil {
 		return
 	}
 	s.mu.Lock()
-	closed := s.closed
-	s.mu.Unlock()
-	if closed {
+	token := string(nonce)
+	if s.closed || s.seen[token] {
+		s.mu.Unlock()
 		return
 	}
+	s.seen[token] = true
+	s.seenOrder = append(s.seenOrder, token)
+	if len(s.seenOrder) > 65536 {
+		delete(s.seen, s.seenOrder[0])
+		s.seenOrder = s.seenOrder[1:]
+	}
+	s.mu.Unlock()
 	switch plain[0] {
 	case 0:
 		s.EmitStatus("peer_ready")
