@@ -163,7 +163,7 @@ func (s *Session) run(provider, room string) {
 			s.EmitStatus("failed")
 			return
 		}
-		// Both peers must derive the upstream frame key from the same original URL.
+		// Use the normalized OK join link returned by guest auth for the upstream frame key.
 		params["tunnelMode"] = "video"
 		params["vp8Fps"] = 24
 		params["vp8Batch"] = 4

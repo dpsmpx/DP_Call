@@ -41,7 +41,17 @@ jobs:
           go-version: '1.26.1'
           cache: false
 
+      - name: Cache carrier AAR
+        id: carrier-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            carrier/mobile.aar
+            app/src/experimental/assets/carrier-licenses.txt
+          key: carrier-android29-go1261-${{ hashFiles('carrier/**') }}
+
       - name: Build experimental carrier (pinned upstream, Go race tests)
+        if: steps.carrier-cache.outputs.cache-hit != 'true'
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865"
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"

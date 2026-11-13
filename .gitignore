@@ -24,3 +24,4 @@ out/
 .build/
 carrier/mobile.aar
 carrier/mobile-sources.jar
+app/src/experimental/assets/carrier-licenses.txt

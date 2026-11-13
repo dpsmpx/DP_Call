@@ -129,3 +129,11 @@
 [releases]: https://github.com/dpsmpx/DP_Call/releases/latest
 [apk]: https://github.com/dpsmpx/DP_Call/releases/latest/download/DP_Call.apk
 [apk-tor]: https://github.com/dpsmpx/DP_Call/releases/latest/download/DP_Call-Tor.apk
+
+### Экспериментальный транспорт Телемост / VK
+
+Отдельный APK `DP_Call-Experimental-v1.3.1.apk` переносит зашифрованный звонок через
+гостевую комнату видеосервиса. На обоих телефонах нужны эта сборка, одна ссылка
+комнаты и коды DP Call друг друга. У сборки отдельный код и контакты. Работа на
+российских сетях с белыми списками не подтверждена.
+[Создание комнат и подключение](docs/EXPERIMENTAL_TRANSPORT.md).

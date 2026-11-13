@@ -16,4 +16,18 @@ go test -race ./dpcallmobile
 if [ "${1:-}" = "test" ]; then exit 0; fi
 go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260508232728-bebd421c7fa8
 go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260508232728-bebd421c7fa8
-"$(go env GOPATH)/bin/gomobile" bind -trimpath -ldflags="-s -w" -target=android/arm,android/arm64 -androidapi 26 -javapkg org.dpcall -o "$project/carrier/mobile.aar" ./dpcallmobile
+# Preserve license notices in the distributed experimental APK.
+licenses="$project/app/src/experimental/assets/carrier-licenses.txt"
+mkdir -p "$(dirname "$licenses")"
+cp "$project/carrier/UPSTREAM-LICENSE" "$licenses"
+go list -deps -f '{{if .Module}}{{.Module.Dir}}{{end}}' ./dpcallmobile | sort -u | while IFS= read -r module; do
+  [ -n "$module" ] || continue
+  for notice in "$module"/LICENSE "$module"/LICENSE.txt "$module"/LICENSE.md "$module"/COPYING; do
+    if [ -f "$notice" ]; then
+      printf '\n\n%s\n' "$(basename "$module")" >> "$licenses"
+      cat "$notice" >> "$licenses"
+    fi
+  done
+ done
+cat "$(go env GOROOT)/LICENSE" >> "$licenses"
+"$(go env GOPATH)/bin/gomobile" bind -trimpath -ldflags="-s -w -checklinkname=0" -target=android/arm,android/arm64 -androidapi 26 -javapkg org.dpcall -o "$project/carrier/mobile.aar" ./dpcallmobile

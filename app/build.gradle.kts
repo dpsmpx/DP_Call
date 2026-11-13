@@ -45,7 +45,6 @@ android {
             versionNameSuffix = "-experimental"
             buildConfigField("boolean", "TOR", "false")
             buildConfigField("boolean", "CARRIER", "true")
-            resValue("string", "app_name", "DP Call Experimental")
         }
     }
 
@@ -180,6 +179,7 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("fr.acinq.secp256k1:secp256k1-kmp-jni-jvm:0.16.0")
     // Съёмка скриншотов для страницы приложения на JVM, без эмулятора
     testImplementation("org.robolectric:robolectric:4.14.1")
