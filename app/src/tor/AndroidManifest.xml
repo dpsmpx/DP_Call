@@ -4,6 +4,7 @@
     <application>
         <service
             android:name="org.torproject.jni.TorService"
+            android:foregroundServiceType="remoteMessaging"
             android:exported="false" />
     </application>
 </manifest>
