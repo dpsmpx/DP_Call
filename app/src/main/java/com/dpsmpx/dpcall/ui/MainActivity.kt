@@ -125,11 +125,11 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(intent: Intent?) {
         when (intent?.action) {
             ACTION_ADD_CONTACT -> {
-                // Чужое приложение может прислать это действие, но оно лишь открывает диалог:
-                // контакт появится, только если пользователь сам введёт имя и подтвердит.
+                // Чужое приложение может прислать это действие, но оно лишь показывает карточку:
+                // позвонить или сохранить контакт можно только нажатием самого пользователя.
                 val code = intent.getStringExtra(EXTRA_CODE)?.take(MAX_EXTRA_CHARS)?.let(CodeValidator::extract)
                 intent.action = Intent.ACTION_MAIN
-                if (code != null && !CallManager.uiState.value.state.isActive) homeViewModel.openAddDialog(code)
+                if (code != null && !CallManager.uiState.value.state.isActive) homeViewModel.onCodeFound(code)
             }
             ACTION_SHOW_LOG, ACTION_CALL_BACK -> {
                 val callBack = intent.action == ACTION_CALL_BACK

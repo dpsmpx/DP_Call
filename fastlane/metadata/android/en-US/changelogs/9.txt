@@ -1,0 +1,7 @@
+* Russia: Yandex STUN, relay connections renewed before the 16 KB freeze, whitelist mode detected
+* Tor build: DP_Call-Tor.apk with built-in or your own bridges
+* Network test with a report; "Tell them by SMS" when a call does not get through
+* More reliable delivery: spare relays, faster resends
+* Audio adapts to the connection; softer noise gate
+* Scanned QR: Call or Save right away
+* Setup hints for Xiaomi, Huawei, Samsung and others; Always connected mode

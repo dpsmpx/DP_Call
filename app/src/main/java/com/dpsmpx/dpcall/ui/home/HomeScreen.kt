@@ -2,6 +2,13 @@ package com.dpsmpx.dpcall.ui.home
 
 import androidx.compose.ui.res.stringResource
 import com.dpsmpx.dpcall.R
+import com.dpsmpx.dpcall.call.CallManager
+import com.dpsmpx.dpcall.call.NetworkRestriction
+import com.dpsmpx.dpcall.call.Restriction
+import com.dpsmpx.dpcall.webrtc.CallState
+import com.dpsmpx.dpcall.webrtc.PathCheck
+import com.dpsmpx.dpcall.webrtc.PathProbe
+import com.dpsmpx.dpcall.tor.TorState
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
@@ -98,6 +105,7 @@ import com.dpsmpx.dpcall.call.RelayStatus
 import com.dpsmpx.dpcall.call.SignalResult
 import com.dpsmpx.dpcall.data.AppSettings
 import com.dpsmpx.dpcall.util.CodeValidator
+import com.dpsmpx.dpcall.util.Vendor
 import com.dpsmpx.dpcall.domain.Contact
 import com.dpsmpx.dpcall.ui.components.Avatar
 import com.dpsmpx.dpcall.ui.components.shareText
@@ -124,7 +132,7 @@ fun HomeScreen(
     var showInvite by remember { mutableStateOf(false) }
     val tab = state.tab
     val callLog by viewModel.callLog.collectAsStateWithLifecycle()
-    val scanQr = rememberQrScanner { scanned -> viewModel.onAddCodeChange(scanned) }
+    val scanQr = rememberQrScanner { scanned -> viewModel.onCodeFound(scanned, fillAddDialog = viewModel.uiState.value.showAddDialog) }
     var showHelp by remember { mutableStateOf(false) }
     val appSettings = remember { AppSettings.get(context) }
     val onboardingShown by appSettings.onboardingShown.collectAsStateWithLifecycle()
@@ -139,8 +147,17 @@ fun HomeScreen(
         resumes++
         onPauseOrDispose { }
     }
-    val readiness = remember(relayStatus.online, background, resumes) {
-        readinessOf(context, relayStatus.online, background)
+    val pathCheck by PathProbe.result.collectAsStateWithLifecycle()
+    val restriction by NetworkRestriction.state.collectAsStateWithLifecycle()
+    var showConnectionCheck by remember { mutableStateOf(false) }
+    // Проверка маршрутов (STUN/TURN) — при открытии и после смены сети, не чаще раза в 10 минут.
+    LaunchedEffect(resumes) {
+        PathProbe.runIfStale(context, busy = CallManager.uiState.value.state != CallState.IDLE)
+    }
+    val vendorSetupDone by appSettings.vendorSetupDone.collectAsStateWithLifecycle()
+    var showVendorSetup by remember { mutableStateOf(false) }
+    val readiness = remember(relayStatus.online, background, resumes, pathCheck, vendorSetupDone) {
+        readinessOf(context, relayStatus.online, background, pathCheck, vendorSetupDone)
     }
     // Журнал открыт — пропущенные просмотрены.
     LaunchedEffect(tab, unseenMissed) {
@@ -199,10 +216,12 @@ fun HomeScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     item(key = "status") {
-                        ReadinessBanner(readiness) {
+                        ReadinessBanner(readiness, pathCheck, relayStatus.tor, restriction) {
                             when (readiness) {
                                 Readiness.NO_NOTIFICATIONS -> openNotificationSettings(context)
                                 Readiness.BATTERY_RESTRICTED -> requestBatteryExemption(context)
+                                Readiness.VENDOR_SETUP -> showVendorSetup = true
+                                Readiness.READY, Readiness.NO_PATH, Readiness.OFFLINE -> showConnectionCheck = true
                                 else -> showSettings = true
                             }
                         }
@@ -348,7 +367,28 @@ fun HomeScreen(
     }
 
     if (showQr) {
-        QrDialog(code = state.identity?.value.orEmpty(), onDismiss = { showQr = false })
+        QrDialog(
+            code = state.identity?.value.orEmpty(),
+            onScan = {
+                showQr = false
+                scanQr()
+            },
+            onDismiss = { showQr = false }
+        )
+    }
+
+    state.foundCode?.let { code ->
+        FoundCodeDialog(
+            code = code,
+            contact = state.contacts.firstOrNull { it.code.equals(code, ignoreCase = true) },
+            own = code == state.identity?.value,
+            onCall = { contact ->
+                viewModel.dismissFoundCode()
+                onCall(contact)
+            },
+            onSave = viewModel::saveFoundCode,
+            onDismiss = viewModel::dismissFoundCode
+        )
     }
 
     if (showInvite) {
@@ -359,6 +399,14 @@ fun HomeScreen(
             },
             onDismiss = { showInvite = false }
         )
+    }
+
+    if (showVendorSetup) {
+        Vendor.current()?.let { vendor -> VendorSetupDialog(vendor, onDismiss = { showVendorSetup = false }) }
+    }
+
+    if (showConnectionCheck) {
+        ConnectionCheckDialog(relayStatus, pathCheck, onDismiss = { showConnectionCheck = false })
     }
 
     if (showSettings) {
@@ -432,40 +480,75 @@ fun HomeScreen(
 private val OnlineGreen = Color(0xFF2E9E5B)
 
 /** Насколько приложение готово принять звонок. Порядок — от самого серьёзного препятствия. */
-private enum class Readiness { OFFLINE, NO_NOTIFICATIONS, BACKGROUND_OFF, BATTERY_RESTRICTED, READY }
+private enum class Readiness { OFFLINE, NO_PATH, NO_NOTIFICATIONS, BACKGROUND_OFF, BATTERY_RESTRICTED, VENDOR_SETUP, READY }
 
 /**
  * Соединения с релеями мало: звонок не дойдёт, если Android усыпит приложение, и останется
- * незамеченным без уведомлений. Плашка зелёная, только когда выполнено всё.
+ * незамеченным без уведомлений, а без прямого пути и TURN не соединится. Плашка зелёная,
+ * только когда выполнено всё.
  */
-private fun readinessOf(context: Context, online: Boolean, background: Boolean): Readiness = when {
+private fun readinessOf(
+    context: Context,
+    online: Boolean,
+    background: Boolean,
+    path: PathCheck?,
+    vendorSetupDone: Boolean
+): Readiness = when {
     !online -> Readiness.OFFLINE
+    path?.blocked == true -> Readiness.NO_PATH
     !CallNotifications.canPostNotifications(context) -> Readiness.NO_NOTIFICATIONS
     !background -> Readiness.BACKGROUND_OFF
     !isBatteryUnrestricted(context) -> Readiness.BATTERY_RESTRICTED
+    // Оболочки Xiaomi, Huawei и др. закрывают приложение и без экономии батареи.
+    !vendorSetupDone && Vendor.current() != null -> Readiness.VENDOR_SETUP
     else -> Readiness.READY
 }
 
 @Composable
-private fun ReadinessBanner(readiness: Readiness, onClick: () -> Unit) {
+private fun ReadinessBanner(
+    readiness: Readiness,
+    path: PathCheck?,
+    tor: TorState?,
+    restriction: Restriction,
+    onClick: () -> Unit
+) {
     val warning = if (isSystemInDarkTheme()) Color(0xFFFFC04D) else Color(0xFF8A5A00)
     val color = when (readiness) {
         Readiness.READY -> OnlineGreen
-        Readiness.OFFLINE -> MaterialTheme.colorScheme.error
+        // Tor ещё строит цепочку — это ожидание, а не поломка.
+        Readiness.OFFLINE -> if (tor == TorState.STARTING) warning else MaterialTheme.colorScheme.error
         else -> warning
     }
     val text = when (readiness) {
-        Readiness.READY -> stringResource(R.string.online_banner)
-        Readiness.OFFLINE -> stringResource(R.string.listen_offline)
+        Readiness.READY -> stringResource(if (tor != null) R.string.online_banner_tor else R.string.online_banner)
+        Readiness.OFFLINE -> when {
+            tor == TorState.STARTING -> stringResource(R.string.tor_starting)
+            tor == TorState.FAILED -> stringResource(R.string.tor_failed)
+            restriction == Restriction.MOBILE_WHITELIST -> stringResource(R.string.restricted_mobile)
+            restriction == Restriction.RELAYS_BLOCKED -> stringResource(R.string.restricted_relays)
+            else -> stringResource(R.string.listen_offline)
+        }
+        Readiness.NO_PATH -> stringResource(R.string.ready_no_path)
         Readiness.NO_NOTIFICATIONS -> stringResource(R.string.ready_no_notifications)
         Readiness.BACKGROUND_OFF -> stringResource(R.string.ready_background_off)
         Readiness.BATTERY_RESTRICTED -> stringResource(R.string.ready_battery_restricted)
+        Readiness.VENDOR_SETUP -> stringResource(R.string.ready_vendor_setup, Vendor.current()?.title.orEmpty())
     }
     Surface(onClick = onClick, shape = RoundedCornerShape(22.dp), color = color.copy(alpha = 0.12f)) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).background(color, CircleShape))
             Spacer(Modifier.width(10.dp))
-            Text(text, style = MaterialTheme.typography.labelLarge, color = color, modifier = Modifier.weight(1f, fill = false))
+            Column(Modifier.weight(1f, fill = false)) {
+                Text(text, style = MaterialTheme.typography.labelLarge, color = color)
+                // Готов, но без TURN: в сетях, где прямой путь закрыт, звонок может не соединиться.
+                if (readiness == Readiness.READY && path != null && !path.turn) {
+                    Text(
+                        stringResource(R.string.ready_no_turn),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
             if (readiness != Readiness.READY && readiness != Readiness.OFFLINE) {
                 Spacer(Modifier.width(6.dp))
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, stringResource(R.string.fix), Modifier.size(18.dp), tint = color)
@@ -563,6 +646,10 @@ private fun SettingsDialog(relayStatus: RelayStatus, onManualInvite: () -> Unit,
     val contactsOnly by settings.contactsOnly.collectAsStateWithLifecycle()
     val missedNotices by settings.missedNotices.collectAsStateWithLifecycle()
     val updateCheck by settings.updateCheck.collectAsStateWithLifecycle()
+    val hardBackground by settings.hardBackground.collectAsStateWithLifecycle()
+    var confirmHard by remember { mutableStateOf(false) }
+    var showVendorSetup by remember { mutableStateOf(false) }
+    val vendor = remember { Vendor.current() }
     var checking by remember { mutableStateOf(false) }
     // Перечитывается при каждом открытии диалога и после возврата из системных настроек.
     val unrestricted = isBatteryUnrestricted(context)
@@ -601,6 +688,28 @@ private fun SettingsDialog(relayStatus: RelayStatus, onManualInvite: () -> Unit,
                         Text(stringResource(R.string.battery_button))
                     }
                     Spacer(Modifier.height(8.dp))
+                }
+                if (background && vendor != null) {
+                    FilledTonalButton(onClick = { showVendorSetup = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.vendor_button, vendor.title))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+                if (background) {
+                    SettingRow(
+                        title = stringResource(R.string.setting_hard_background),
+                        description = stringResource(R.string.setting_hard_background_desc),
+                        checked = hardBackground,
+                        onChange = { enable ->
+                            if (enable) {
+                                confirmHard = true
+                            } else {
+                                settings.setHardBackground(false)
+                                ListenService.sync(context)
+                                RelaySignaling.restart(context)
+                            }
+                        }
+                    )
                 }
                 SettingRow(
                     title = stringResource(R.string.setting_contacts_only),
@@ -649,6 +758,28 @@ private fun SettingsDialog(relayStatus: RelayStatus, onManualInvite: () -> Unit,
         confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.done)) } },
         dismissButton = { TextButton(onClick = onHelp) { Text(stringResource(R.string.how_to_use)) } }
     )
+
+    if (confirmHard) {
+        AlertDialog(
+            onDismissRequest = { confirmHard = false },
+            title = { Text(stringResource(R.string.setting_hard_background)) },
+            text = { Text(stringResource(R.string.hard_background_warning)) },
+            confirmButton = {
+                Button(onClick = {
+                    confirmHard = false
+                    settings.setHardBackground(true)
+                    ListenService.sync(context)
+                    // Частота проверки соединения задаётся при подключении к релеям.
+                    RelaySignaling.restart(context)
+                }) { Text(stringResource(R.string.hard_background_enable)) }
+            },
+            dismissButton = { TextButton(onClick = { confirmHard = false }) { Text(stringResource(R.string.cancel)) } }
+        )
+    }
+
+    if (showVendorSetup && vendor != null) {
+        VendorSetupDialog(vendor, onDismiss = { showVendorSetup = false })
+    }
 }
 
 private fun appVersion(context: Context): String = try {

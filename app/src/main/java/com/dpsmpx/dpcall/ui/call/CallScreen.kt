@@ -2,6 +2,11 @@ package com.dpsmpx.dpcall.ui.call
 
 import androidx.compose.ui.res.stringResource
 import com.dpsmpx.dpcall.R
+import com.dpsmpx.dpcall.update.UpdateChecker
+import androidx.compose.material.icons.filled.Sms
+import androidx.compose.material3.OutlinedButton
+import android.net.Uri
+import android.content.Intent
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -96,6 +101,7 @@ import com.dpsmpx.dpcall.util.CodeValidator
 import kotlinx.coroutines.launch
 import com.dpsmpx.dpcall.call.CallUiState
 import com.dpsmpx.dpcall.call.LinkQuality
+import com.dpsmpx.dpcall.webrtc.HearQuality
 import com.dpsmpx.dpcall.call.SignalResult
 import com.dpsmpx.dpcall.ui.MainActivity
 import com.dpsmpx.dpcall.ui.components.Avatar
@@ -176,6 +182,12 @@ fun CallScreen(state: CallUiState, onAccept: () -> Unit, onMinimize: () -> Unit)
 
                 when (state.state) {
                     CallState.WAITING_FOR_ANSWER -> state.signalToCopy?.let { signal ->
+                        // SMS ходит и тогда, когда мобильный интернет ограничен: собеседник хотя бы
+                        // узнает, что ему звонят, и откроет приложение там, где есть связь.
+                        if (state.peerUnreachable || state.slowToReach) {
+                            SmsNudgeButton()
+                            Spacer(Modifier.height(12.dp))
+                        }
                         ManualFallback(
                             automatic = state.viaRelay && !state.peerUnreachable,
                             label = stringResource(R.string.send_invite_manually),
@@ -336,6 +348,18 @@ private fun StatusLine(state: CallUiState) {
                     modifier = Modifier.padding(top = 6.dp)
                 )
             }
+            // Слышимость имеет смысл, только пока собеседник говорит в обычном режиме.
+            val hearing = state.hearing.takeIf {
+                note == null && it != HearQuality.UNKNOWN
+            }
+            AnimatedVisibility(visible = hearing != null) {
+                val (text, color) = when (hearing) {
+                    HearQuality.GOOD -> stringResource(R.string.hearing_good) to muted
+                    HearQuality.FAIR -> stringResource(R.string.hearing_fair) to Color(0xFFE0A100)
+                    else -> stringResource(R.string.hearing_poor) to DeclineRed
+                }
+                Text(text, style = MaterialTheme.typography.bodyMedium, color = color, modifier = Modifier.padding(top = 6.dp))
+            }
         }
         CallState.ENDED -> {
             Text(state.statusMessage.ifBlank { stringResource(R.string.call_ended) }, style = MaterialTheme.typography.titleMedium, color = muted)
@@ -400,6 +424,29 @@ private fun formatDuration(totalSec: Long): String {
  * Пока вызов доставляется сам (через релеи), ручной обмен кодами спрятан за
  * кнопкой; если автоматическая доставка невозможна — показан сразу.
  */
+/** Открывает приложение SMS с готовым текстом; получателя выбирает пользователь. */
+@Composable
+private fun SmsNudgeButton() {
+    val context = LocalContext.current
+    OutlinedButton(onClick = {
+        val text = context.getString(R.string.sms_nudge_text, UpdateChecker.DIRECT_DOWNLOAD)
+        try {
+            context.startActivity(
+                Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:"))
+                    .putExtra("sms_body", text)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (e: Exception) {
+            // Нет приложения SMS (планшет) — тот же текст через любой мессенджер.
+            shareText(context, text, context.getString(R.string.sms_nudge))
+        }
+    }) {
+        Icon(Icons.Default.Sms, null, Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(stringResource(R.string.sms_nudge))
+    }
+}
+
 @Composable
 private fun ManualFallback(automatic: Boolean, label: String, hint: String?, content: @Composable () -> Unit) {
     var expanded by remember { mutableStateOf(false) }

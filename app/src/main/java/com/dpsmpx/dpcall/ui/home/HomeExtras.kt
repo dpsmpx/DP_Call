@@ -2,6 +2,11 @@ package com.dpsmpx.dpcall.ui.home
 
 import androidx.compose.ui.res.stringResource
 import com.dpsmpx.dpcall.R
+import com.dpsmpx.dpcall.tor.TorBridges
+import androidx.compose.material3.RadioButton
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.dpsmpx.dpcall.tor.TorProxy
+import androidx.compose.material3.Switch
 import android.graphics.Bitmap
 import android.text.format.DateUtils
 import android.widget.Toast
@@ -23,6 +28,7 @@ import androidx.compose.material.icons.automirrored.filled.CallMade
 import androidx.compose.material.icons.automirrored.filled.CallMissed
 import androidx.compose.material.icons.automirrored.filled.CallReceived
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PersonAdd
@@ -63,6 +69,7 @@ import com.dpsmpx.dpcall.ui.components.Avatar
 import com.dpsmpx.dpcall.ui.components.shareText
 import com.dpsmpx.dpcall.update.UpdateChecker
 import com.dpsmpx.dpcall.util.CodeValidator
+import com.dpsmpx.dpcall.domain.Contact
 import com.dpsmpx.dpcall.util.Diagnostics
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
@@ -87,12 +94,82 @@ private fun qrBitmap(text: String, size: Int = 720): Bitmap? = try {
 
 /** QR со своим кодом — чтобы собеседник отсканировал его при встрече. */
 @Composable
-fun QrDialog(code: String, onDismiss: () -> Unit) {
+fun QrDialog(code: String, onScan: () -> Unit, onDismiss: () -> Unit) {
     QrCodeDialog(
         content = code,
         title = stringResource(R.string.your_code),
         hint = stringResource(R.string.qr_hint),
-        onDismiss = onDismiss
+        onDismiss = onDismiss,
+        // Встретились лично — обычно сканируют друг друга: второй код под рукой.
+        action = {
+            Button(onClick = onScan) {
+                Icon(Icons.Default.QrCodeScanner, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.scan_their_code))
+            }
+        }
+    )
+}
+
+/**
+ * Отсканированный или присланный код: знакомому контакту — сразу позвонить, новому коду —
+ * позвонить или сохранить. Ничего не происходит без нажатия: код мог прийти из чужого
+ * приложения через «Поделиться».
+ */
+@Composable
+fun FoundCodeDialog(
+    code: String,
+    contact: Contact?,
+    own: Boolean,
+    onCall: (Contact) -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val short = code.take(5) + " … " + code.takeLast(5)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                when {
+                    own -> stringResource(R.string.found_own_title)
+                    contact != null -> contact.name
+                    else -> stringResource(R.string.found_new_title)
+                }
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(short, style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace))
+                Text(
+                    when {
+                        own -> stringResource(R.string.found_own_text)
+                        contact != null -> stringResource(R.string.found_known_text)
+                        else -> stringResource(R.string.found_new_text)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            if (!own) {
+                Button(onClick = { onCall(contact ?: Contact(code = code, name = code.take(5))) }) {
+                    Icon(Icons.Default.Call, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.call_action))
+                }
+            } else {
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
+            }
+        },
+        dismissButton = if (own) null else {
+            {
+                Row {
+                    if (contact == null) TextButton(onClick = onSave) { Text(stringResource(R.string.found_save)) }
+                    TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
+                }
+            }
+        }
     )
 }
 
@@ -164,7 +241,7 @@ private fun QrCodeDialog(
 fun rememberQrScanner(onCode: (String) -> Unit): () -> Unit {
     val prompt = stringResource(R.string.qr_scan_prompt)
     val launcher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.let { onCode(CodeValidator.normalize(it)) }
+        result.contents?.let(onCode)
     }
     return {
         launcher.launch(
@@ -269,6 +346,28 @@ fun AdvancedSettings(onManualInvite: () -> Unit) {
     val relaysInvalid = stringResource(R.string.relays_invalid)
     val turnInvalid = stringResource(R.string.turn_invalid)
     val reportTitle = stringResource(R.string.send_error_log)
+
+    // --- Tor (только в сборке с Tor)
+    if (TorProxy.available) {
+        val tor by settings.torSignaling.collectAsStateWithLifecycle()
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(R.string.tor_title), style = MaterialTheme.typography.titleSmall)
+                Text(
+                    stringResource(R.string.tor_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Switch(checked = tor, onCheckedChange = {
+                settings.setTorSignaling(it)
+                RelaySignaling.restart(context)
+            })
+        }
+        if (tor) TorBridgesSection()
+        Spacer(Modifier.height(16.dp))
+    }
 
     // --- резервная копия
     BackupSection()
@@ -397,4 +496,72 @@ fun AdvancedSettings(onManualInvite: () -> Unit) {
         },
         modifier = Modifier.fillMaxWidth()
     ) { Text(stringResource(R.string.send_error_log)) }
+}
+
+/**
+ * Мосты Tor: в России прямое подключение к Tor заблокировано. Встроенные мосты — как в Tor
+ * Browser; свои можно получить у @GetBridgesBot или на bridges.torproject.org.
+ */
+@Composable
+private fun TorBridgesSection() {
+    val context = LocalContext.current
+    val settings = remember { AppSettings.get(context) }
+    val mode by settings.torBridgesMode.collectAsStateWithLifecycle()
+    var custom by remember { mutableStateOf(settings.torCustomBridges) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val noBridges = stringResource(R.string.tor_bridges_invalid)
+    val saved = stringResource(R.string.saved)
+
+    fun apply(newMode: TorBridges.Mode, text: String = custom) {
+        settings.setTorBridges(newMode, text)
+        // Мосты читаются при запуске Tor — перезапускаем его.
+        TorProxy.stop(context)
+        RelaySignaling.restart(context)
+    }
+
+    Spacer(Modifier.height(10.dp))
+    Text(stringResource(R.string.tor_bridges_title), style = MaterialTheme.typography.titleSmall)
+    Text(
+        stringResource(R.string.tor_bridges_desc),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    listOf(
+        TorBridges.Mode.BUILTIN to R.string.tor_bridges_builtin,
+        TorBridges.Mode.CUSTOM to R.string.tor_bridges_custom,
+        TorBridges.Mode.NONE to R.string.tor_bridges_none
+    ).forEach { (option, label) ->
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            RadioButton(selected = mode == option, onClick = {
+                error = null
+                if (option == TorBridges.Mode.CUSTOM && TorBridges.parse(custom).isEmpty()) {
+                    // Своих мостов ещё нет — сначала поле для них, переключимся после «Сохранить».
+                    settings.setTorBridges(TorBridges.Mode.CUSTOM, custom)
+                } else if (option != mode) {
+                    apply(option)
+                }
+            })
+            Text(stringResource(label), style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+    if (mode == TorBridges.Mode.CUSTOM) {
+        OutlinedTextField(
+            value = custom,
+            onValueChange = { custom = it; error = null },
+            label = { Text(stringResource(R.string.tor_bridges_field)) },
+            placeholder = { Text("webtunnel [2001:db8::1]:443 … url=…") },
+            isError = error != null,
+            supportingText = error?.let { { Text(it) } },
+            minLines = 3,
+            modifier = Modifier.fillMaxWidth()
+        )
+        FilledTonalButton(onClick = {
+            if (TorBridges.parse(custom).isEmpty()) {
+                error = noBridges
+            } else {
+                apply(TorBridges.Mode.CUSTOM, custom)
+                Toast.makeText(context, saved, Toast.LENGTH_SHORT).show()
+            }
+        }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.save)) }
+    }
 }

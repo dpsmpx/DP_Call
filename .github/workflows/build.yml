@@ -36,7 +36,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
 
       - name: Unit tests
-        run: ./gradlew --no-daemon testDebugUnitTest
+        run: ./gradlew --no-daemon testStandardDebugUnitTest testTorDebugUnitTest
 
       # Релизная сборка. С секретами репозитория подписывается вашим ключом,
       # без них — общим тестовым ключом из репозитория (см. app/build.gradle.kts).
@@ -83,11 +83,17 @@ jobs:
             prerelease=false
           fi
           mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk "dist/DP_Call-${tag}.apk"
-          # Копия с постоянным именем: ссылка .../releases/latest/download/DP_Call.apk всегда
+          # Две сборки: обычная и с встроенным Tor. Имя обычной не меняется — на него
+          # ссылаются F-Droid (Binaries) и проверка обновлений в приложении.
+          standard=app/build/outputs/apk/standard/release/app-standard-release.apk
+          tor=app/build/outputs/apk/tor/release/app-tor-release.apk
+          cp "$standard" "dist/DP_Call-${tag}.apk"
+          cp "$tor" "dist/DP_Call-Tor-${tag}.apk"
+          # Копии с постоянными именами: .../releases/latest/download/DP_Call.apk всегда
           # ведёт на последний выпуск — её рассылает кнопка «Пригласить» в приложении.
           if [ "$prerelease" = "false" ]; then
-            cp app/build/outputs/apk/release/app-release.apk dist/DP_Call.apk
+            cp "$standard" dist/DP_Call.apk
+            cp "$tor" dist/DP_Call-Tor.apk
           fi
           (cd dist && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt)
           apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
@@ -109,7 +115,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: mapping
-          path: app/build/outputs/mapping/release/mapping.txt
+          path: app/build/outputs/mapping/*Release/mapping.txt
           if-no-files-found: ignore
 
       - name: Publish GitHub release

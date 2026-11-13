@@ -30,6 +30,7 @@ import com.dpsmpx.dpcall.ui.call.CallScreen
 import com.dpsmpx.dpcall.ui.home.HomeScreen
 import com.dpsmpx.dpcall.ui.theme.DPCallTheme
 import com.dpsmpx.dpcall.webrtc.CallState
+import com.dpsmpx.dpcall.webrtc.HearQuality
 import com.github.takahirom.roborazzi.captureScreenRoboImage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -163,7 +164,7 @@ class StoreScreenshotsTest {
     private fun activeCall() {
         call(
             CallUiState(
-                state = CallState.CONNECTED, viaRelay = true, quality = LinkQuality.GOOD,
+                state = CallState.CONNECTED, viaRelay = true, quality = LinkQuality.GOOD, hearing = HearQuality.GOOD,
                 contactName = contacts[0].name, contactCode = contacts[0].code,
                 connectedAt = SystemClock.elapsedRealtime() - 83_000
             )

@@ -100,7 +100,13 @@ data class LinkStats(
     val lossPercent: Double,
     val rttMs: Double?,
     /** Тип выбранного маршрута, например «host→srflx» или «relay→relay» (через TURN). */
-    val route: String? = null
+    val route: String? = null,
+    /** Потери наших пакетов у собеседника (по его отчётам RTCP), %. */
+    val sendLossPercent: Double? = null,
+    /** Доля звука собеседника, восполненного подстановкой вместо потерянного или опоздавшего, %. */
+    val concealedPercent: Double? = null,
+    /** За интервал пришёл хоть один пакет звука. */
+    val audioArrived: Boolean = true
 )
 
 /**
@@ -138,7 +144,17 @@ class PeerConnectionManager(
 
     private val collectedCandidates = CopyOnWriteArrayList<IceCandidate>()
 
+    /**
+     * Путь между телефонами (ICE) хотя бы раз был найден. Если при этом соединение не
+     * поднялось, сорвалось шифрованное рукопожатие (DTLS) — это другая блокировка.
+     */
+    @Volatile
+    var iceConnected = false
+        private set
+
     private var lastPacketsLost = 0L
+    private var lastConcealed = 0L
+    private var lastSamples = 0L
     private var lastPacketsReceived = 0L
 
     fun createPeerConnection(listener: Listener, noiseSuppression: Boolean) {
@@ -157,6 +173,11 @@ class PeerConnectionManager(
 
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
                 AppLog.add(TAG, "ice=$state")
+                if (state == PeerConnection.IceConnectionState.CONNECTED ||
+                    state == PeerConnection.IceConnectionState.COMPLETED
+                ) {
+                    iceConnected = true
+                }
             }
 
             override fun onConnectionChange(newState: PeerConnection.PeerConnectionState?) {
@@ -255,6 +276,18 @@ class PeerConnectionManager(
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to switch noise suppression", e)
+        }
+    }
+
+    /** Ограничивает битрейт исходящего звука без пересогласования SDP. */
+    fun setMaxAudioBitrate(bps: Int) {
+        val sender = audioSender ?: return
+        try {
+            val params = sender.parameters
+            params.encodings.forEach { it.maxBitrateBps = bps }
+            sender.parameters = params
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to set audio bitrate", e)
         }
     }
 
@@ -368,12 +401,20 @@ class PeerConnectionManager(
             var received = 0L
             var rtt: Double? = null
             var route: String? = null
+            var sendLoss: Double? = null
+            var concealed = 0L
+            var samples = 0L
             for (stats in report.statsMap.values) {
                 val m = stats.members
                 when (stats.type) {
                     "inbound-rtp" -> if (m["kind"] == "audio") {
                         lost += (m["packetsLost"] as? Number)?.toLong() ?: 0L
                         received += (m["packetsReceived"] as? Number)?.toLong() ?: 0L
+                        concealed += (m["concealedSamples"] as? Number)?.toLong() ?: 0L
+                        samples += (m["totalSamplesReceived"] as? Number)?.toLong() ?: 0L
+                    }
+                    "remote-inbound-rtp" -> if (m["kind"] == "audio") {
+                        (m["fractionLost"] as? Number)?.let { sendLoss = it.toDouble() * 100.0 }
                     }
                     "candidate-pair" -> if (m["nominated"] == true && m["state"] == "succeeded") {
                         (m["currentRoundTripTime"] as? Number)?.let { rtt = it.toDouble() * 1000.0 }
@@ -389,7 +430,20 @@ class PeerConnectionManager(
             lastPacketsReceived = received
             val total = dLost + dReceived
             val loss = if (total > 0) dLost * 100.0 / total else if (received > 0) 100.0 else 0.0
-            onResult(LinkStats(lossPercent = loss, rttMs = rtt, route = route))
+            val dConcealed = (concealed - lastConcealed).coerceAtLeast(0)
+            val dSamples = (samples - lastSamples).coerceAtLeast(0)
+            lastConcealed = concealed
+            lastSamples = samples
+            onResult(
+                LinkStats(
+                    lossPercent = loss,
+                    rttMs = rtt,
+                    route = route,
+                    sendLossPercent = sendLoss,
+                    concealedPercent = if (dSamples > 0) dConcealed * 100.0 / dSamples else null,
+                    audioArrived = dReceived > 0
+                )
+            )
         }
     }
 

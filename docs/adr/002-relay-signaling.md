@@ -62,7 +62,7 @@ IP-адрес (у пользователей с VPN — адрес VPN), тег 
 - Системное резервное копирование отключено (`allowBackup=false`). Перенести ключ можно
   только явно: файлом под паролем (`BackupCodec`, версия 1.2.0).
 - Публичные релеи могут менять политику. Список — `RelayPool.DEFAULT_RELAYS`,
-  проверяется тестом `LiveRelayTest` (`DPCALL_LIVE_RELAYS=1 ./gradlew testDebugUnitTest`).
+  проверяется тестом `LiveRelayTest` (`DPCALL_LIVE_RELAYS=1 ./gradlew testStandardDebugUnitTest`).
 - Новые зависимости: OkHttp, secp256k1-kmp (ACINQ).
 
 ## Отвергнутые варианты

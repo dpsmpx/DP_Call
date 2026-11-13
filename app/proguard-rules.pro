@@ -21,3 +21,7 @@
 # Понятные стек-трейсы в отчётах об ошибках
 -keepattributes SourceFile, LineNumberTable
 -renamesourcefileattribute SourceFile
+
+# Встроенный Tor (сборка tor): нативная libtor.so обращается к полям и методам
+# TorService по именам.
+-keep class org.torproject.jni.** { *; }

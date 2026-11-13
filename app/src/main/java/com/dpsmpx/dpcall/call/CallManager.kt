@@ -30,7 +30,10 @@ import com.dpsmpx.dpcall.util.AppLog
 import com.dpsmpx.dpcall.util.CodeValidator
 import com.dpsmpx.dpcall.webrtc.AudioCallManager
 import com.dpsmpx.dpcall.webrtc.AudioRoute
+import com.dpsmpx.dpcall.webrtc.BitrateController
 import com.dpsmpx.dpcall.webrtc.CallState
+import com.dpsmpx.dpcall.webrtc.HearQuality
+import com.dpsmpx.dpcall.webrtc.HearingEstimate
 import com.dpsmpx.dpcall.webrtc.LinkStats
 import com.dpsmpx.dpcall.webrtc.PeerConnectionManager
 import kotlinx.coroutines.CompletableDeferred
@@ -78,6 +81,8 @@ data class CallUiState(
     val availableRoutes: List<AudioRoute> = listOf(AudioRoute.EARPIECE, AudioRoute.SPEAKER),
     val noiseSuppression: Boolean = true,
     val quality: LinkQuality = LinkQuality.UNKNOWN,
+    /** Насколько хорошо слышно собеседника: доля потерянного и восполненного звука. */
+    val hearing: HearQuality = HearQuality.UNKNOWN,
     /** SystemClock.elapsedRealtime() момента соединения, 0 — ещё не соединились. */
     val connectedAt: Long = 0L,
     /** Длительность разговора (для экрана завершения), сек. */
@@ -127,10 +132,16 @@ object CallManager {
     private const val RESTART_GATHER_TIMEOUT_MS = 4_000L
     private const val ENDED_SCREEN_MS = 1_800L
     private const val AUTO_OFFER_MAX_AGE_MS = 30 * 60_000L
-    private const val OFFER_RESEND_MS = 5_000L
-    private const val OFFER_RESEND_ATTEMPTS = 9
-    private const val ANSWER_RESEND_MS = 3_000L
-    private const val ANSWER_RESEND_ATTEMPTS = 5
+    /**
+     * Паузы между повторами приглашения: чаще в первые секунды, когда собеседник,
+     * скорее всего, на связи и потерялось одно сообщение; всего около 45 секунд.
+     */
+    private val OFFER_RESEND_DELAYS = listOf(1_500L, 2_500L, 4_000L) + List(7) { 5_000L }
+    private val ANSWER_RESEND_DELAYS = listOf(1_000L, 1_500L, 2_500L, 3_000L, 3_000L, 3_000L)
+    /** Повторы списка маршрутов: каждое сообщение может потеряться по пути. */
+    private val CANDIDATE_RESEND_DELAYS = listOf(1_500L, 3_000L)
+    /** Нет ни одного релея: проверяем связь чаще, но не дольше общего срока повторов. */
+    private const val NO_RELAY_RETRY_MS = 1_000L
     private const val NO_ANSWER_TIMEOUT_MS = 65_000L
     /** С запасом на неточные часы устройств; повторы отсекаются по идентификатору звонка. */
     private const val RELAY_MESSAGE_MAX_AGE_MS = 5 * 60_000L
@@ -138,6 +149,8 @@ object CallManager {
     private const val SLOW_REACH_MS = 12_000L
     /** Отметка о пропущенном старше срока хранения на релеях — повтор или сбитые часы. */
     private const val MISSED_MAX_AGE_MS = 49 * 3600_000L
+    /** Сколько замеров (по 2 с) усредняет индикатор слышимости. */
+    private const val HEARING_WINDOW = 3
     private const val MSG_BYE = "bye"
     private const val MSG_MUTE = "mute:"
 
@@ -177,6 +190,7 @@ object CallManager {
     private var useFallbackRouting = false
     private var statsJob: Job? = null
     private var resendJob: Job? = null
+    private var candidateResendJob: Job? = null
 
     // Пересогласование соединения (ICE restart) при смене сети или обрыве.
     private enum class Restart { NONE, OFFERING, ANSWERING }
@@ -571,28 +585,45 @@ object CallManager {
         sendToPeer(CallMessage.MISSED)
     }
 
-    /** Отправляет служебное сообщение собеседнику текущего звонка. */
-    private fun sendToPeer(type: String, signal: String? = null) {
+    /**
+     * Отправляет служебное сообщение собеседнику текущего звонка.
+     * @return сколько релеев его приняли.
+     */
+    private fun sendToPeer(type: String, signal: String? = null): Int {
         val code = _uiState.value.contactCode
         if (callId.isBlank() || !CodeValidator.isValid(code)) {
             AppLog.add(TAG, "relay out: $type SKIPPED (callId blank=${callId.isBlank()}, code valid=${CodeValidator.isValid(code)})")
-            return
+            return 0
         }
         val accepted = RelaySignaling.send(code, CallMessage(type, callId, signal))
         AppLog.add(TAG, "relay out: $type call=${callId.take(6)} signal=${signal?.length ?: 0} relays=$accepted")
+        return accepted
     }
 
-    /** Повторяет сообщение: события эфемерны, а собеседник мог быть не на связи. */
-    private fun startResend(type: String, signal: () -> String?, attempts: Int, intervalMs: Long, done: () -> Boolean, onExhausted: () -> Unit = {}) {
+    /**
+     * Повторяет сообщение: события эфемерны, а собеседник мог быть не на связи.
+     * Пока не подключён ни один релей, отправка пробуется каждую секунду, но общий
+     * срок повторов от этого не растёт.
+     */
+    private fun startResend(type: String, signal: () -> String?, delays: List<Long>, done: () -> Boolean, onExhausted: () -> Unit = {}) {
         resendJob?.cancel()
         if (!CodeValidator.isValid(_uiState.value.contactCode)) return
         val gen = generation
         resendJob = scope.launch {
-            repeat(attempts) {
+            var budget = delays.sum()
+            var index = 0
+            while (budget > 0) {
                 if (gen != generation || done()) return@launch
                 // Каждый повтор собирается заново — с маршрутами, найденными к этому моменту.
-                signal()?.let { sendToPeer(type, it) }
-                delay(intervalMs)
+                val accepted = signal()?.let { sendToPeer(type, it) } ?: 0
+                val pause = if (accepted == 0) {
+                    RelaySignaling.reconnectNow()
+                    NO_RELAY_RETRY_MS
+                } else {
+                    delays.getOrElse(index++) { delays.last() }
+                }.coerceAtMost(budget)
+                delay(pause)
+                budget -= pause
             }
             if (gen == generation && !done()) onExhausted()
         }
@@ -859,7 +890,7 @@ object CallManager {
         // Автоматическая доставка через релеи; ручная отправка остаётся запасным путём.
         if (isOffer) {
             startResend(
-                CallMessage.OFFER, ::buildLocalSignal, OFFER_RESEND_ATTEMPTS, OFFER_RESEND_MS,
+                CallMessage.OFFER, ::buildLocalSignal, OFFER_RESEND_DELAYS,
                 done = { state != CallState.WAITING_FOR_ANSWER || _uiState.value.remoteRinging },
                 onExhausted = {
                     // Отметку оставляем сразу: звонящий может просто закрыть приложение.
@@ -880,7 +911,7 @@ object CallManager {
             }, SLOW_REACH_MS)
         } else {
             startResend(
-                CallMessage.ANSWER, ::buildLocalSignal, ANSWER_RESEND_ATTEMPTS, ANSWER_RESEND_MS,
+                CallMessage.ANSWER, ::buildLocalSignal, ANSWER_RESEND_DELAYS,
                 done = { state != CallState.CONNECTING }
             )
         }
@@ -908,10 +939,18 @@ object CallManager {
         sentCandidateCount = candidates.size
         AppLog.add(TAG, "local candidates now: ${manager.localCandidateSummary()}")
         // Отправляем весь список, а не только новые: сообщения эфемерны и могут теряться.
-        sendToPeer(
-            CallMessage.CANDIDATES,
-            candidates.joinToString("\n") { "${it.sdpMid}|${it.sdpMLineIndex}|${it.sdp}" }
-        )
+        val list = candidates.joinToString("\n") { "${it.sdpMid}|${it.sdpMLineIndex}|${it.sdp}" }
+        sendToPeer(CallMessage.CANDIDATES, list)
+        // Тот же список ещё пару раз, пока соединения нет; новый список заменяет повторы.
+        candidateResendJob?.cancel()
+        val gen = generation
+        candidateResendJob = scope.launch {
+            for (pause in CANDIDATE_RESEND_DELAYS) {
+                delay(pause)
+                if (gen != generation || state == CallState.CONNECTED || !state.isActive || restart != Restart.NONE) return@launch
+                sendToPeer(CallMessage.CANDIDATES, list)
+            }
+        }
         // Приглашение для ручной отправки тоже должно содержать все маршруты.
         if (_uiState.value.signalToCopy != null) {
             buildLocalSignal()?.let { fresh -> _uiState.update { it.copy(signalToCopy = fresh) } }
@@ -994,7 +1033,11 @@ object CallManager {
                     AppLog.add(TAG, "ICE failed before connect, waiting ${grace / 1000}s for late candidates")
                     main.postDelayed({
                         if (gen == generation && state.isActive && _uiState.value.connectedAt == 0L) {
-                            fail(app.getString(R.string.error_no_connection))
+                            // Путь найден, а соединения нет — сорвалось рукопожатие DTLS (в России
+                            // его режут по «отпечатку»); иначе не нашёлся сам путь (STUN/TURN).
+                            val dtls = pcm?.iceConnected == true
+                            AppLog.add(TAG, if (dtls) "failed: DTLS after ICE connected" else "failed: no ICE path")
+                            fail(app.getString(if (dtls) R.string.error_dtls_blocked else R.string.error_no_path))
                         }
                     }, grace)
                 }
@@ -1157,6 +1200,8 @@ object CallManager {
 
     private fun startStatsPolling() {
         statsJob?.cancel()
+        bitrate = BitrateController()
+        recentConcealment.clear()
         val gen = generation
         statsJob = scope.launch {
             while (isActive) {
@@ -1168,6 +1213,9 @@ object CallManager {
     }
 
     private var loggedRoute: String? = null
+    private var bitrate = BitrateController()
+    /** Последние замеры доли восполненного звука — для сглаживания индикатора слышимости. */
+    private val recentConcealment = ArrayDeque<Double>()
 
     private fun onStats(stats: LinkStats) {
         if (stats.route != null && stats.route != loggedRoute) {
@@ -1182,6 +1230,20 @@ object CallManager {
             else -> LinkQuality.GOOD
         }
         if (quality != _uiState.value.quality) _uiState.update { it.copy(quality = quality) }
+
+        // Битрейт подстраивается под потери наших пакетов у собеседника; если он
+        // их не сообщает, ориентируемся на потери в обратную сторону.
+        bitrate.onSample(stats.sendLossPercent ?: stats.lossPercent, stats.rttMs)?.let { bps ->
+            pcm?.setMaxAudioBitrate(bps)
+            AppLog.add(TAG, "audio bitrate -> ${bps / 1000} kbit/s (send loss=${stats.sendLossPercent?.toInt()}%, rtt=${stats.rttMs?.toInt()}ms)")
+        }
+
+        stats.concealedPercent?.let {
+            recentConcealment.addLast(it)
+            if (recentConcealment.size > HEARING_WINDOW) recentConcealment.removeFirst()
+        }
+        val hearing = HearingEstimate.of(recentConcealment.takeIf { it.isNotEmpty() }?.average(), stats.audioArrived)
+        if (hearing != _uiState.value.hearing) _uiState.update { it.copy(hearing = hearing) }
     }
 
     private fun humanizeError(raw: String, fallback: String): String {
@@ -1203,6 +1265,8 @@ object CallManager {
         statsJob = null
         resendJob?.cancel()
         resendJob = null
+        candidateResendJob?.cancel()
+        candidateResendJob = null
         remoteDescriptionSet = false
         pendingRemoteCandidates.clear()
         appliedRemoteCandidates.clear()

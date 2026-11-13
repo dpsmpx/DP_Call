@@ -1,5 +1,7 @@
 package com.dpsmpx.dpcall.data
 
+import com.dpsmpx.dpcall.BuildConfig
+import com.dpsmpx.dpcall.tor.TorBridges
 import android.content.Context
 import com.dpsmpx.dpcall.signaling.relay.RelayPool
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -73,6 +75,55 @@ class AppSettings private constructor(context: Context) {
     var noiseSuppression: Boolean
         get() = prefs.getBoolean(KEY_NOISE_SUPPRESSION, true)
         set(value) = prefs.edit().putBoolean(KEY_NOISE_SUPPRESSION, value).apply()
+
+    private val _hardBackground = MutableStateFlow(prefs.getBoolean(KEY_HARD_BACKGROUND, false))
+    /**
+     * Постоянная связь: процессор не засыпает, соединения проверяются чаще, а сторож
+     * перезапускает ожидание звонков. Для оболочек, которые закрывают приложение
+     * вопреки всем исключениям; заметно расходует батарею.
+     */
+    val hardBackground: StateFlow<Boolean> = _hardBackground.asStateFlow()
+
+    fun setHardBackground(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_HARD_BACKGROUND, enabled).apply()
+        _hardBackground.value = enabled
+    }
+
+    private val _torSignaling = MutableStateFlow(prefs.getBoolean(KEY_TOR, BuildConfig.TOR))
+    /**
+     * Сигнальный канал через встроенный Tor (только сборка tor; там включено по умолчанию):
+     * релеи не видят IP-адрес. Звук по-прежнему идёт напрямую или через TURN.
+     */
+    val torSignaling: StateFlow<Boolean> = _torSignaling.asStateFlow()
+
+    fun setTorSignaling(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_TOR, enabled).apply()
+        _torSignaling.value = enabled
+    }
+
+    private val _torBridgesMode = MutableStateFlow(
+        prefs.getString(KEY_TOR_BRIDGES_MODE, null)?.let { runCatching { TorBridges.Mode.valueOf(it) }.getOrNull() }
+            ?: TorBridges.Mode.BUILTIN
+    )
+    /** Мосты Tor: встроенные (по умолчанию — в России Tor без них заблокирован), свои или без мостов. */
+    val torBridgesMode: StateFlow<TorBridges.Mode> = _torBridgesMode.asStateFlow()
+
+    /** Свои мосты — текст, как его вставил пользователь. */
+    val torCustomBridges: String get() = prefs.getString(KEY_TOR_BRIDGES, "").orEmpty()
+
+    fun setTorBridges(mode: TorBridges.Mode, custom: String = torCustomBridges) {
+        prefs.edit().putString(KEY_TOR_BRIDGES_MODE, mode.name).putString(KEY_TOR_BRIDGES, custom).apply()
+        _torBridgesMode.value = mode
+    }
+
+    private val _vendorSetupDone = MutableStateFlow(prefs.getBoolean(KEY_VENDOR_SETUP, false))
+    /** Пользователь прошёл настройку автозапуска в оболочке производителя. */
+    val vendorSetupDone: StateFlow<Boolean> = _vendorSetupDone.asStateFlow()
+
+    fun setVendorSetupDone() {
+        prefs.edit().putBoolean(KEY_VENDOR_SETUP, true).apply()
+        _vendorSetupDone.value = true
+    }
 
     fun setBackgroundListening(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_BACKGROUND, enabled).apply()
@@ -189,6 +240,11 @@ class AppSettings private constructor(context: Context) {
         private const val KEY_NOISE_SUPPRESSION = "noise_suppression"
         private const val KEY_ONBOARDING = "onboarding_shown"
         private const val KEY_RELAYS = "relays"
+        private const val KEY_HARD_BACKGROUND = "hard_background"
+        private const val KEY_TOR = "tor_signaling"
+        private const val KEY_TOR_BRIDGES_MODE = "tor_bridges_mode"
+        private const val KEY_TOR_BRIDGES = "tor_bridges"
+        private const val KEY_VENDOR_SETUP = "vendor_setup_done"
         private const val KEY_TURN_URL = "turn_url"
         private const val KEY_TURN_USER = "turn_user"
         private const val KEY_TURN_PASSWORD = "turn_password"

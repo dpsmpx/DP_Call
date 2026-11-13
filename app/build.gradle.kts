@@ -5,6 +5,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization") version "2.0.21"
 }
 
+/** Версия Tor для сборки tor; при обновлении — и org/torproject/jni в src/tor/java. */
+val TOR_ANDROID_VERSION = "0.4.9.14"
+val torNative: Configuration by configurations.creating { isTransitive = false }
+
 android {
     namespace = "com.dpsmpx.dpcall"
     compileSdk = 35
@@ -13,10 +17,26 @@ android {
         applicationId = "com.dpsmpx.dpcall"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.2.2"
+        versionCode = 9
+        versionName = "1.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // Две сборки с одним идентификатором: лёгкая (standard) и с встроенным Tor для
+    // сигнального канала (tor). Одна ставится поверх другой с сохранением кода и контактов.
+    // F-Droid собирает только standard.
+    flavorDimensions += "transport"
+    productFlavors {
+        create("standard") {
+            dimension = "transport"
+            isDefault = true
+            buildConfigField("boolean", "TOR", "false")
+        }
+        create("tor") {
+            dimension = "transport"
+            buildConfigField("boolean", "TOR", "true")
+        }
     }
 
     signingConfigs {
@@ -78,6 +98,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     // Блок со списком зависимостей шифруется ключом Google и мешает воспроизводимой сборке.
@@ -91,7 +112,7 @@ android {
             // Ресурсы нужны только съёмке скриншотов для каталога (StoreScreenshotsTest).
             isIncludeAndroidResources = true
             all { test ->
-                // Скриншоты снимаются отдельно: ./gradlew testDebugUnitTest -Pscreenshots
+                // Скриншоты снимаются отдельно: ./gradlew testStandardDebugUnitTest -Pscreenshots
                 if (project.hasProperty("screenshots")) {
                     test.filter.includeTestsMatching("*StoreScreenshotsTest")
                     test.systemProperty("roborazzi.test.record", "true")
@@ -134,6 +155,13 @@ dependencies {
     // Сигналинг через релеи Nostr: WebSocket и ключи secp256k1
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("fr.acinq.secp256k1:secp256k1-kmp-jni-android:0.16.0")
+    // Tor для сигнального канала — только в сборке tor (Guardian Project, BSD-3):
+    // нативная libtor.so из AAR (см. extractTorNative), обёртка TorService — в src/tor/java.
+    torNative("info.guardianproject:tor-android:$TOR_ANDROID_VERSION@aar")
+    "torImplementation"("info.guardianproject:jtorctl:0.4.5.7")
+    "torImplementation"("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
+    // Мосты Tor (obfs4, webtunnel, snowflake, meek): Lyrebird и Snowflake от Guardian Project.
+    "torImplementation"("com.netzarchitekten:IPtProxy:5.7.0")
     // QR-коды: показ своего кода и сканирование кода собеседника
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 
@@ -151,4 +179,28 @@ dependencies {
     testImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+}
+
+// Нативный Tor из AAR tor-android. Java-классы AAR не используются: они собраны под
+// Java 24 и compileSdk 37, которые наш набор инструментов не принимает. Обёртка
+// TorService (BSD-3) лежит исходником в src/tor/java и собирается вместе с приложением.
+val extractTorNative = tasks.register<Sync>("extractTorNative") {
+    from({ zipTree(torNative.singleFile) }) {
+        include("jni/*/libtor.so")
+        eachFile { path = path.removePrefix("jni/") }
+    }
+    includeEmptyDirs = false
+    into(layout.buildDirectory.dir("generated/torJni"))
+}
+android.sourceSets.getByName("tor").jniLibs.srcDir(layout.buildDirectory.dir("generated/torJni"))
+tasks.configureEach {
+    if (name.startsWith("mergeTor") && name.endsWith("JniLibFolders")) dependsOn(extractTorNative)
+}
+
+// Сборка tor хранит нативные библиотеки сжатыми: Tor и мосты (IPtProxy, на Go) весят около
+// 60 МБ без сжатия, со сжатием APK меньше примерно вдвое. Обычная сборка не меняется.
+androidComponents {
+    onVariants(selector().withFlavor("transport" to "tor")) { variant ->
+        variant.packaging.jniLibs.useLegacyPackaging.set(true)
+    }
 }

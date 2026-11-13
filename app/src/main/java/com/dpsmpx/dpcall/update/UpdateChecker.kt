@@ -15,6 +15,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
+import com.dpsmpx.dpcall.BuildConfig
+import com.dpsmpx.dpcall.tor.TorProxy
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
@@ -38,6 +40,9 @@ object UpdateChecker {
     private const val LATEST_RELEASE_API = "https://api.github.com/repos/$REPOSITORY/releases/latest"
     /** Скачивать разрешаем только файлы выпусков этого репозитория. */
     private const val DOWNLOAD_PREFIX = "https://github.com/$REPOSITORY/releases/"
+    /** Начало имени APK выпуска: `DP_Call-v1.3.0.apk` и `DP_Call-Tor-v1.3.0.apk`. */
+    private const val STANDARD_ASSET_PREFIX = "DP_Call-v"
+    private const val TOR_ASSET_PREFIX = "DP_Call-Tor-v"
     private const val CHECK_INTERVAL_MS = 24 * 3600_000L
     private const val MAX_RESPONSE_BYTES = 512 * 1024L
 
@@ -64,7 +69,10 @@ object UpdateChecker {
     /** Проверка прямо сейчас. @param manual по кнопке в настройках: напомнить и о скрытой версии. */
     suspend fun check(context: Context, manual: Boolean = true): Result = mutex.withLock {
         val settings = AppSettings.get(context)
-        val latest = withContext(Dispatchers.IO) { fetchLatest() }
+        // В режиме Tor GitHub тоже спрашиваем через Tor; пока он не готов — не спрашиваем вовсе.
+        val viaTor = TorProxy.available && settings.torSignaling.value
+        val proxy = if (viaTor) TorProxy.proxy() ?: return Result.FAILED else null
+        val latest = withContext(Dispatchers.IO) { fetchLatest(proxy) }
         if (latest == null) {
             // Неудачу тоже запоминаем: без сети не нужно стучаться при каждом открытии.
             settings.lastUpdateCheckAt = System.currentTimeMillis()
@@ -92,13 +100,14 @@ object UpdateChecker {
         ""
     }
 
-    private fun fetchLatest(): UpdateInfo? = try {
+    private fun fetchLatest(proxy: java.net.Proxy?): UpdateInfo? = try {
         val request = Request.Builder()
             .url(LATEST_RELEASE_API)
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "DP-Call")
             .build()
-        client.newCall(request).execute().use { response ->
+        val http = if (proxy != null) client.newBuilder().proxy(proxy).connectTimeout(45, TimeUnit.SECONDS).build() else client
+        http.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 AppLog.add(TAG, "update check failed: HTTP ${response.code}")
                 return null
@@ -112,15 +121,20 @@ object UpdateChecker {
     }
 
     /** Разбирает ответ GitHub «последний выпуск». Черновики и предварительные выпуски не предлагаются. */
-    internal fun parseRelease(body: String): UpdateInfo? = try {
+    internal fun parseRelease(body: String, tor: Boolean = BuildConfig.TOR): UpdateInfo? = try {
         val release = json.parseToJsonElement(body).jsonObject
         if (release.flag("draft") || release.flag("prerelease")) {
             null
         } else {
             val version = release.text("tag_name")?.removePrefix("v")?.takeIf { parseVersion(it) != null }
+            // У выпуска два APK: обычный и с Tor. Предлагаем тот же вариант, что установлен.
             val apk = release["assets"]?.jsonArray
                 ?.mapNotNull { (it as? JsonObject)?.text("browser_download_url") }
-                ?.firstOrNull { it.startsWith(DOWNLOAD_PREFIX) && it.endsWith(".apk") }
+                ?.filter { it.startsWith(DOWNLOAD_PREFIX) && it.endsWith(".apk") }
+                ?.firstOrNull { url ->
+                    val name = url.substringAfterLast('/')
+                    name.startsWith(if (tor) TOR_ASSET_PREFIX else STANDARD_ASSET_PREFIX)
+                }
             version?.let { UpdateInfo(it, apk ?: RELEASES_PAGE) }
         }
     } catch (e: Exception) {

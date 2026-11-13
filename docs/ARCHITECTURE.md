@@ -55,7 +55,33 @@ it has already seen (call ids persisted in settings) and shows a missed call.
 ## Reachability, updates, backup
 
 - The home screen banner is green only when a call will actually get through: relays
-  connected, notifications allowed, background listening on, battery optimization lifted.
+  connected, a path for audio exists, notifications allowed, background listening on,
+  battery optimization lifted, and on known vendor skins (Xiaomi, Huawei, Honor, OPPO,
+  vivo, Samsung, Meizu, ASUS — `Vendor`) the user has confirmed the autostart setup.
+- `PathProbe` gathers ICE candidates without a call (no microphone) on app open and after a
+  network change, at most every 10 minutes, never during a call. `PathCheck` reports a
+  direct path (srflx), TURN (relay) and the user's own TURN (matched by server URL). If the
+  probe itself fails, the result stays unknown rather than "blocked".
+- `RelayPool` keeps a health record per relay (`RelayHealth`): connect failures and drops
+  within 2 minutes, `OK false` rejects, events left unacknowledged for 8 s. A relay failing
+  repeatedly is benched for 5 min, doubling up to 60 min — never while no other relay is
+  open. When fewer than 3 primary relays are in rotation, spare relays are engaged (default
+  relay list only).
+- In Russia, connections to large foreign hosters (Cloudflare, Hetzner, OVH, …) freeze after
+  ~14–25 KB sent by the server. Each relay link counts bytes received (TLS handshake,
+  frames, pongs) and at ~9 KB opens a replacement socket, subscribes on it and only then
+  closes the old one. Stored missed-call notes are re-requested from the last EOSE, not for
+  the whole 48 h window.
+- `NetworkRestriction`: when no relay has answered for 15 s, a HEAD to ya.ru tells "no
+  internet" from "mobile whitelist mode" (cellular) or "relays blocked" (other networks).
+  Skipped in Tor mode.
+- `NetworkTest` (on demand): each relay with a ~30 KB request to detect the freeze, a STUN
+  Binding to each STUN server, TCP to TURN and ya.ru; a shareable report without IPs.
+- A setup failure after ICE reached CONNECTED is reported as a blocked DTLS handshake,
+  otherwise as no ICE path.
+- Offers are resent at 1.5 s, 2.5 s, 4 s and then every 5 s (≈43 s), answers at 1–3 s
+  (≈14 s); candidate lists are repeated twice. With no relay connected, sending is retried
+  every second within the same budget.
 - `UpdateChecker` asks the GitHub Releases API for the latest release at most once a day and
   shows a banner; the browser downloads the APK and the system installs it. The app has no
   install permission and downloads nothing itself.
@@ -66,6 +92,9 @@ it has already seen (call ids persisted in settings) and shows a missed call.
 
 ## Background and system integration
 
+- `ListenService` — foreground service (`remoteMessaging`) that keeps the relay connections
+  while the app is closed. With "Always connected" it also holds a partial wake lock, pings
+  relays every 25 s instead of 40 s and arms a while-idle watchdog alarm every 15 min.
 - `CallService` — foreground service (`phoneCall|microphone`), keeps the call alive when the app
   is minimized, shows the ongoing-call notification (Hang up, Mute), holds CPU and proximity
   wake locks.
@@ -108,22 +137,41 @@ All UI text lives in `res/values/strings.xml` (English, default) and `res/values
 
 - Capture: WebRTC Audio Processing — echo cancellation (hardware when available), noise
   suppression, automatic gain control, high-pass filter.
-- Playback: `ReceiveNoiseGate` — a downward expander on the received audio
-  (render pre-processing), attenuates background noise in pauses; never amplifies.
-- Opus: 48 kHz full band, 48 kbit/s, in-band FEC, DTX off (`SdpTuning`, applied to the remote
-  description, so no renegotiation is involved).
+- Playback: `ReceiveNoiseGate` — a soft-knee downward expander on the received audio
+  (render pre-processing): pauses are attenuated to −20 dB, 300 ms hold, release limited to
+  1.5 dB per 10 ms; the noise-floor estimate barely rises during speech, so long quiet
+  speech is not gated. Never amplifies.
+- Opus: 48 kHz full band, in-band FEC, DTX off (`SdpTuning`, applied to the remote
+  description, so no renegotiation is involved). `BitrateController` sets the sender's
+  max bitrate to 48 / 32 / 24 / 16 kbit/s from the peer's RTCP loss reports and RTT.
+- The call screen shows how well the other side is heard: the share of concealed samples
+  over the last 6 s (`HearingEstimate`).
 - Noise suppression can be toggled during a call (both directions).
 
 ## ICE
 
-- STUN: Google public
+- STUN: Yandex first (`stun.rtc.yandex.net`; public STUN servers are blocked by destination
+  in Russia), then Google and Cloudflare
 - TURN: public Open Relay (`staticauth.openrelay.metered.ca`), plus an optional
   user-provided TURN server from Settings. A free public TURN server gives no availability
   guarantee; without any working TURN, calls only connect when a direct path exists.
+
+## Tor build
+
+Product flavors `standard` and `tor` share the application ID, version and signature. In
+`tor`, `TorProxy` binds the embedded `TorService` (tor-android) and exposes its SOCKS port
+once a circuit is established; `RelaySignaling` connects to relays only through that proxy
+(hostnames are resolved by Tor) and never falls back to a direct connection. The update
+check uses the same proxy. WebRTC media and the path probe do not go through Tor.
+Bridges: IPtProxy (Lyrebird + Snowflake) runs obfs4, webtunnel, snowflake and meek_lite
+locally; `TorBridges` builds the torrc (`UseBridges`, `ClientTransportPlugin`, `Bridge`)
+before `TorService` starts. Built-in bridges come from Tor Browser's `pt_config.json`
+(`src/tor/assets/builtin_bridges.txt`). The Tor build stores native libraries compressed. In
+`standard`, `TorProxy` is a stub with `available = false`.
 
 ## Constraints
 
 - Android only
 - Voice only
 - Open source (MIT)
-- Distribution: GitHub Releases; the app announces new versions itself
+- Distribution: GitHub Releases (regular and Tor APK); the app announces new versions itself
