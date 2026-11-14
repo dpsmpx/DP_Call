@@ -75,12 +75,23 @@ notices "$project/app/src/tor/assets/carrier-licenses.txt" ./dpcallmobile github
 # vendor includes its complete import graph, not only the room carrier's graph.
 mkdir -p dpcalltor
 cp "$project/carrier/tor_dependencies.go.in" dpcalltor/deps.go
-go list -m all > source-modules.txt
-# Materialize lazy module metadata for the source-only import, after binding.
-# This must not change any selected module version used to build the APKs.
+# Compare the source graph against the modules actually linked into both ABIs.
+# Lazy metadata may add test-only modules; linked module versions must stay exact.
+: > native-module-versions.txt
+for abi in armeabi-v7a arm64-v8a; do
+  unzip -p "$project/carrier/mobile-tor.aar" "jni/$abi/libgojni.so" > source-check.so
+  go version -m source-check.so | awk '$1 == "dep" && $2 != "whitelist-bypass" { print $2, $3 }' >> native-module-versions.txt
+done
+rm source-check.so
+sort -u -o native-module-versions.txt native-module-versions.txt
 go list -mod=mod -deps ./dpcalltor > /dev/null
-go list -m all > source-modules-after.txt
-cmp source-modules.txt source-modules-after.txt
+go list -m -f '{{.Path}} {{.Version}}' all | sort > source-modules.txt
+comm -23 native-module-versions.txt source-modules.txt > missing-source-modules.txt
+if [ -s missing-source-modules.txt ]; then
+  cat missing-source-modules.txt >&2
+  echo "Source versions differ from the modules linked into the APK" >&2
+  exit 1
+fi
 go mod vendor
 lyrebird=vendor/gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird
 [ -s "$lyrebird/LICENSE-GPL3.txt" ]
@@ -92,7 +103,7 @@ mkdir -p "$bundle/carrier-upstream" "$bundle/iptproxy-source"
 git ls-files -z | tar --null -T - -cf - | tar -xf - -C "$bundle/carrier-upstream"
 cp -a dpcallmobile dpcalltor vendor "$bundle/carrier-upstream/"
 cp standard.mod standard.sum "$bundle/carrier-upstream/"
-cp go.mod go.sum source-modules.txt "$bundle/carrier-upstream/"
+cp go.mod go.sum source-modules.txt native-module-versions.txt "$bundle/carrier-upstream/"
 cp -a "$ipt/IPtProxy.go" "$ipt/dnstt" "$bundle/iptproxy-source/"
 find "$bundle/iptproxy-source" -name .git -type f -delete
 cp "$project/carrier/UPSTREAM.md" "$bundle/BUILD.md"
