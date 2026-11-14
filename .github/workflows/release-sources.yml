@@ -46,9 +46,9 @@ jobs:
             jq -e --arg name "$name" --arg digest "$digest" '.assets | any(.name == $name and .digest == $digest)' release.json
           done
           tar -tzf dist/DP_Call-native-sources.tar.gz > source-files.txt
-          rg -Fx './carrier-upstream/vendor/gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird/LICENSE-GPL3.txt' source-files.txt
-          rg -Fx './carrier-upstream/vendor/github.com/tladesignz/IPtProxy.git/controller.go' source-files.txt
-          rg -Fx './carrier-upstream/native-module-versions.txt' source-files.txt
+          grep -Fx './carrier-upstream/vendor/gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird/LICENSE-GPL3.txt' source-files.txt
+          grep -Fx './carrier-upstream/vendor/github.com/tladesignz/IPtProxy.git/controller.go' source-files.txt
+          grep -Fx './carrier-upstream/native-module-versions.txt' source-files.txt
           gh release upload "$RELEASE_TAG" dist/DP_Call-native-sources.tar.gz dist/SHA256SUMS.txt --repo "$GH_REPO" --clobber
           gh release download "$RELEASE_TAG" --repo "$GH_REPO" --pattern DP_Call-native-sources.tar.gz --pattern SHA256SUMS.txt --dir verified
           cmp dist/DP_Call-native-sources.tar.gz verified/DP_Call-native-sources.tar.gz
