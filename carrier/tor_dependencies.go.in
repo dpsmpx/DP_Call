@@ -1,0 +1,5 @@
+// Source-bundle dependency anchor. Not a gomobile binding target or an APK entry point.
+// go mod vendor includes imported packages, not every module named in go.mod.
+package dpcalltor
+
+import _ "github.com/tladesignz/IPtProxy.git"

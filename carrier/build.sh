@@ -71,14 +71,28 @@ notices "$project/app/src/tor/assets/carrier-licenses.txt" ./dpcallmobile github
 
 # Corresponding source, including the selected third-party modules and local
 # replacements, is distributed beside the APKs (Tor bridges include GPL components).
+# The second gomobile target is outside this module. Anchor it locally so
+# vendor includes its complete import graph, not only the room carrier's graph.
+mkdir -p dpcalltor
+cp "$project/carrier/tor_dependencies.go.in" dpcalltor/deps.go
+go list -m all > source-modules.txt
+# Materialize lazy module metadata for the source-only import, after binding.
+# This must not change any selected module version used to build the APKs.
+go list -mod=mod -deps ./dpcalltor > /dev/null
+go list -m all > source-modules-after.txt
+cmp source-modules.txt source-modules-after.txt
 go mod vendor
+lyrebird=vendor/gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird
+[ -s "$lyrebird/LICENSE-GPL3.txt" ]
+[ -s "$lyrebird/transports/transports.go" ]
+[ -s vendor/github.com/tladesignz/IPtProxy.git/controller.go ]
 bundle="$project/.build/native-sources"
 rm -rf "$bundle"
 mkdir -p "$bundle/carrier-upstream" "$bundle/iptproxy-source"
 git ls-files -z | tar --null -T - -cf - | tar -xf - -C "$bundle/carrier-upstream"
-cp -a dpcallmobile vendor "$bundle/carrier-upstream/"
+cp -a dpcallmobile dpcalltor vendor "$bundle/carrier-upstream/"
 cp standard.mod standard.sum "$bundle/carrier-upstream/"
-cp go.mod go.sum "$bundle/carrier-upstream/"
+cp go.mod go.sum source-modules.txt "$bundle/carrier-upstream/"
 cp -a "$ipt/IPtProxy.go" "$ipt/dnstt" "$bundle/iptproxy-source/"
 find "$bundle/iptproxy-source" -name .git -type f -delete
 cp "$project/carrier/UPSTREAM.md" "$bundle/BUILD.md"
