@@ -347,8 +347,12 @@ fun AdvancedSettings(onManualInvite: () -> Unit) {
     val turnInvalid = stringResource(R.string.turn_invalid)
     val reportTitle = stringResource(R.string.send_error_log)
 
+    val carrierStatus by com.dpsmpx.dpcall.carrier.CarrierTransport.status.collectAsStateWithLifecycle()
+    val roomActive = carrierStatus.phase != "off"
+    if (roomActive && com.dpsmpx.dpcall.BuildConfig.TOR) Text(stringResource(R.string.carrier_tor_disclosure))
+
     // --- Tor (только в сборке с Tor)
-    if (TorProxy.available) {
+    if (TorProxy.available && !roomActive) {
         val tor by settings.torSignaling.collectAsStateWithLifecycle()
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -374,110 +378,113 @@ fun AdvancedSettings(onManualInvite: () -> Unit) {
 
     Spacer(Modifier.height(16.dp))
 
-    // --- ручной приём приглашения
-    Text(stringResource(R.string.manual_invite_title), style = MaterialTheme.typography.titleSmall)
-    Text(
-        stringResource(R.string.manual_invite_desc),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
-    Spacer(Modifier.height(6.dp))
-    FilledTonalButton(onClick = onManualInvite, modifier = Modifier.fillMaxWidth()) {
-        Text(stringResource(R.string.manual_invite_button))
-    }
-
-    Spacer(Modifier.height(16.dp))
-
-    // --- TURN
-    var turn by remember { mutableStateOf(settings.turn) }
-    var turnError by remember { mutableStateOf<String?>(null) }
-    Text(stringResource(R.string.turn_title), style = MaterialTheme.typography.titleSmall)
-    Text(
-        stringResource(R.string.turn_desc),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
-    Spacer(Modifier.height(6.dp))
-    OutlinedTextField(
-        value = turn.url,
-        onValueChange = { turn = turn.copy(url = it); turnError = null },
-        label = { Text(stringResource(R.string.address)) },
-        placeholder = { Text("turn:example.org:3478") },
-        singleLine = true,
-        isError = turnError != null,
-        supportingText = turnError?.let { { Text(it) } },
-        modifier = Modifier.fillMaxWidth()
-    )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = turn.username, onValueChange = { turn = turn.copy(username = it) },
-            label = { Text(stringResource(R.string.username)) }, singleLine = true, modifier = Modifier.weight(1f)
+    if (!roomActive) {
+        // --- ручной приём приглашения
+        Text(stringResource(R.string.manual_invite_title), style = MaterialTheme.typography.titleSmall)
+        Text(
+            stringResource(R.string.manual_invite_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        OutlinedTextField(
-            value = turn.password, onValueChange = { turn = turn.copy(password = it) },
-            label = { Text(stringResource(R.string.password)) }, singleLine = true, modifier = Modifier.weight(1f)
+        Spacer(Modifier.height(6.dp))
+        FilledTonalButton(onClick = onManualInvite, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.manual_invite_button))
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // --- TURN
+        var turn by remember { mutableStateOf(settings.turn) }
+        var turnError by remember { mutableStateOf<String?>(null) }
+        Text(stringResource(R.string.turn_title), style = MaterialTheme.typography.titleSmall)
+        Text(
+            stringResource(R.string.turn_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-    }
-    Spacer(Modifier.height(6.dp))
-    FilledTonalButton(
-        onClick = {
-            if (turn.url.isNotBlank() && !TurnConfig(turn.url.trim()).isValid) {
-                turnError = turnInvalid
-            } else {
-                settings.turn = turn
-                Toast.makeText(context, saved, Toast.LENGTH_SHORT).show()
-            }
-        },
-        modifier = Modifier.fillMaxWidth()
-    ) { Text(stringResource(R.string.turn_save)) }
-
-    Spacer(Modifier.height(16.dp))
-
-    // --- релеи
-    var relays by remember { mutableStateOf(settings.relays.value.joinToString("\n")) }
-    var relaysError by remember { mutableStateOf<String?>(null) }
-    Text(stringResource(R.string.relays), style = MaterialTheme.typography.titleSmall)
-    Text(
-        stringResource(R.string.relays_desc),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
-    Spacer(Modifier.height(6.dp))
-    OutlinedTextField(
-        value = relays,
-        onValueChange = { relays = it; relaysError = null },
-        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-        minLines = 3,
-        maxLines = 8,
-        isError = relaysError != null,
-        supportingText = relaysError?.let { { Text(it) } },
-        modifier = Modifier.fillMaxWidth()
-    )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextButton(
-            onClick = {
-                settings.resetRelays()
-                relays = RelayPool.DEFAULT_RELAYS.joinToString("\n")
-                relaysError = null
-                RelaySignaling.restart(context)
-            },
-            modifier = Modifier.weight(1f)
-        ) { Text(stringResource(R.string.defaults)) }
+        Spacer(Modifier.height(6.dp))
+        OutlinedTextField(
+            value = turn.url,
+            onValueChange = { turn = turn.copy(url = it); turnError = null },
+            label = { Text(stringResource(R.string.address)) },
+            placeholder = { Text("turn:example.org:3478") },
+            singleLine = true,
+            isError = turnError != null,
+            supportingText = turnError?.let { { Text(it) } },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = turn.username, onValueChange = { turn = turn.copy(username = it) },
+                label = { Text(stringResource(R.string.username)) }, singleLine = true, modifier = Modifier.weight(1f)
+            )
+            OutlinedTextField(
+                value = turn.password, onValueChange = { turn = turn.copy(password = it) },
+                label = { Text(stringResource(R.string.password)) }, singleLine = true, modifier = Modifier.weight(1f)
+            )
+        }
+        Spacer(Modifier.height(6.dp))
         FilledTonalButton(
             onClick = {
-                if (settings.setRelays(relays)) {
-                    relays = settings.relays.value.joinToString("\n")
-                    RelaySignaling.restart(context)
-                    Toast.makeText(context, saved, Toast.LENGTH_SHORT).show()
+                if (turn.url.isNotBlank() && !TurnConfig(turn.url.trim()).isValid) {
+                    turnError = turnInvalid
                 } else {
-                    relaysError = relaysInvalid
+                    settings.turn = turn
+                    Toast.makeText(context, saved, Toast.LENGTH_SHORT).show()
                 }
             },
-            modifier = Modifier.weight(1f)
-        ) { Text(stringResource(R.string.save)) }
-    }
+            modifier = Modifier.fillMaxWidth()
+        ) { Text(stringResource(R.string.turn_save)) }
 
-    Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(16.dp))
+
+        // --- релеи
+        var relays by remember { mutableStateOf(settings.relays.value.joinToString("\n")) }
+        var relaysError by remember { mutableStateOf<String?>(null) }
+        Text(stringResource(R.string.relays), style = MaterialTheme.typography.titleSmall)
+        Text(
+            stringResource(R.string.relays_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(6.dp))
+        OutlinedTextField(
+            value = relays,
+            onValueChange = { relays = it; relaysError = null },
+            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+            minLines = 3,
+            maxLines = 8,
+            isError = relaysError != null,
+            supportingText = relaysError?.let { { Text(it) } },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(
+                onClick = {
+                    settings.resetRelays()
+                    relays = RelayPool.DEFAULT_RELAYS.joinToString("\n")
+                    relaysError = null
+                    RelaySignaling.restart(context)
+                },
+                modifier = Modifier.weight(1f)
+            ) { Text(stringResource(R.string.defaults)) }
+            FilledTonalButton(
+                onClick = {
+                    if (settings.setRelays(relays)) {
+                        relays = settings.relays.value.joinToString("\n")
+                        RelaySignaling.restart(context)
+                        Toast.makeText(context, saved, Toast.LENGTH_SHORT).show()
+                    } else {
+                        relaysError = relaysInvalid
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            ) { Text(stringResource(R.string.save)) }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+    }
 
     // --- диагностика
     Text(stringResource(R.string.diagnostics), style = MaterialTheme.typography.titleSmall)

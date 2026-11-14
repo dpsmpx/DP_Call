@@ -28,3 +28,6 @@ The call request travels end-to-end encrypted through public Nostr relays. A rel
 * Public STUN servers are used for NAT traversal; when a direct connection is impossible a TURN relay is needed — you can set your own in Settings
 * The key is stored only on the device; save a backup to keep your code when reinstalling
 * Interface languages: English and Russian
+
+
+Both APKs offer optional Telemost/VK guest rooms for encrypted calls. The service sees your IP and metadata; Tor is paused in this mode. The feature is off by default. Operation on whitelist-only networks remains unverified.

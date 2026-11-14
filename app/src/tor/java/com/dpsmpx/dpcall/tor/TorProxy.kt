@@ -8,8 +8,8 @@ import android.os.IBinder
 import android.util.Log
 import com.dpsmpx.dpcall.data.AppSettings
 import com.dpsmpx.dpcall.util.AppLog
-import IPtProxy.Controller
-import IPtProxy.IPtProxy
+import org.dpcall.IPtProxy.Controller
+import org.dpcall.IPtProxy.IPtProxy
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

@@ -314,13 +314,13 @@
     <string name="sms_signal_send">Передать код по SMS</string>
     <string name="sms_signal_body">DP Call 1.3.1+\n%1$s</string>
     <string name="sms_signal_confirm">Примерно %1$d частей SMS. Оператор может взимать плату за каждую часть. Выберите получателя и отправьте сообщение в приложении SMS. Код содержит подписанные данные подключения. SMS передаст приглашение или ответ; для звука нужен рабочий путь через интернет. На обоих телефонах нужна версия 1.3.1 или новее.</string>
-    <string name="carrier_title">Эксперимент: Телемост / VK</string>
+    <string name="carrier_title">Звонки через Телемост / VK</string>
     <string name="carrier_disclosure">На обоих телефонах укажите одну гостевую комнату и коды DP Call друг друга. Видеосервис переносит зашифрованный звонок и видит IP-адреса, участников и время связи. Доступ к комнате и протокол сервиса могут измениться. Работа на российских сетях с белыми списками не проверена. Создайте комнату в официальном сервисе и отключите зал ожидания.</string>
     <string name="carrier_consent">Использовать сторонний сервис для этой сессии. Я понимаю ограничения приватности и что правила сервиса могут ограничивать такое использование.</string>
     <string name="carrier_room">Гостевая ссылка Телемоста или VK</string>
     <string name="carrier_peer">Код DP Call другого телефона</string>
     <string name="carrier_connect">Войти в комнату</string>
-    <string name="carrier_disconnect">Выйти из комнаты</string>
+    <string name="carrier_disconnect">Вернуться к обычным звонкам</string>
     <string name="carrier_off">Комната не подключена</string>
     <string name="carrier_connecting">Подключение к сервису…</string>
     <string name="carrier_waiting">Комната подключена; ждём другой телефон</string>
@@ -328,4 +328,5 @@
     <string name="carrier_failed">Не удалось войти в комнату. Проверьте ссылку, гостевой доступ и сеть, затем повторите.</string>
     <string name="carrier_captcha">Пройти капчу VK</string>
     <string name="carrier_join_first">Подключите оба телефона к одной комнате и укажите коды DP Call друг друга. Дождитесь доступности собеседника, затем звоните.</string>
+    <string name="carrier_tor_disclosure">В режиме комнат Tor приостановлен. Подключение к Телемосту / VK идёт напрямую: сервис видит ваш IP. При выходе вернётся прежняя настройка Tor.</string>
 </resources>

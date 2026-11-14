@@ -1,0 +1,23 @@
+package IPtProxy
+
+import (
+    "net"
+    "testing"
+    "time"
+)
+
+// The Tor build shares its Go dependency graph with the room carrier. Exercise
+// an actual bridge listener after dependency selection, without contacting a bridge.
+func TestDPCallBridgeListener(t *testing.T) {
+    c := NewController(t.TempDir(), false, false, "ERROR", nil)
+    if c == nil { t.Fatal("controller unavailable") }
+    if err := c.Start(Obfs4, ""); err != nil { t.Fatal(err) }
+    address := c.LocalAddress(Obfs4)
+    host, _, err := net.SplitHostPort(address)
+    if err != nil || !net.ParseIP(host).IsLoopback() { t.Fatalf("non-local listener: %q", address) }
+    conn, err := net.DialTimeout("tcp", address, time.Second)
+    if err != nil { t.Fatal(err) }
+    conn.Close()
+    c.Stop(Obfs4)
+    if c.LocalAddress(Obfs4) != "" { t.Fatal("listener still registered after stop") }
+}

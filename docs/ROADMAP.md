@@ -64,7 +64,7 @@
 
 ## Stage 3.5 — v1.3.1
 - Lossless compact signaling, signed SMS offer/answer exchange
-- Separate experimental Telemost/VK guest-room carrier (local TURN bridge)
+- Optional Telemost/VK guest-room carrier in both APKs (local TURN bridge)
 - Pending device validation: two-phone SFU calls and Russian whitelist networks
 
 ## Stage 4 — Hardening

@@ -61,6 +61,7 @@ object NetworkRestriction {
     @Synchronized
     fun onRelayStatus(context: Context, online: Boolean, probeAllowed: Boolean) {
         if (online || !probeAllowed) {
+            if (job != null) client.dispatcher.cancelAll()
             job?.cancel()
             job = null
             _state.value = Restriction.NONE

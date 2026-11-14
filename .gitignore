@@ -24,4 +24,8 @@ out/
 .build/
 carrier/mobile.aar
 carrier/mobile-sources.jar
-app/src/experimental/assets/carrier-licenses.txt
+carrier/mobile-tor.aar
+carrier/mobile-tor-sources.jar
+carrier/native-sources.tar.gz
+app/src/standard/assets/carrier-licenses.txt
+app/src/tor/assets/carrier-licenses.txt

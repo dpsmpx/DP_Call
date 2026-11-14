@@ -310,7 +310,7 @@ object CallManager {
 
     fun startOutgoing(contactName: String, contactCode: String) {
         if (state.isActive) return
-        if (com.dpsmpx.dpcall.carrier.CarrierTransport.available &&
+        if (com.dpsmpx.dpcall.carrier.CarrierTransport.active &&
             (!com.dpsmpx.dpcall.carrier.CarrierTransport.ready ||
                 !contactCode.equals(com.dpsmpx.dpcall.carrier.CarrierTransport.status.value.peerCode, ignoreCase = true))) {
             showFailure(contactName, contactCode, app.getString(R.string.carrier_join_first))
@@ -361,6 +361,11 @@ object CallManager {
         }
         val key = text.filterNot { it.isWhitespace() }.hashCode()
         val remoteId = decoded.payload.identity
+        if (com.dpsmpx.dpcall.carrier.CarrierTransport.active &&
+            (!com.dpsmpx.dpcall.carrier.CarrierTransport.ready ||
+                !remoteId.equals(com.dpsmpx.dpcall.carrier.CarrierTransport.status.value.peerCode, ignoreCase = true))) {
+            return if (auto) SignalResult.Ignored else SignalResult.Invalid(app.getString(R.string.carrier_join_first))
+        }
         if (remoteId != null && remoteId.equals(myIdentity, ignoreCase = true)) return SignalResult.Own
         // Ручная передача идёт через чужие приложения и буфер обмена: единственное, что
         // доказывает автора сигнала, — подпись его ключом. Без неё имя звонящего можно
@@ -517,13 +522,13 @@ object CallManager {
             return
         }
         val known = contacts.any { it.code.equals(fromCode, ignoreCase = true) }
-        val selectedCarrierPeer = com.dpsmpx.dpcall.carrier.CarrierTransport.available &&
+        val selectedCarrierPeer = com.dpsmpx.dpcall.carrier.CarrierTransport.active &&
             fromCode.equals(com.dpsmpx.dpcall.carrier.CarrierTransport.status.value.peerCode, ignoreCase = true)
         if (!known && settings.contactsOnly.value && !selectedCarrierPeer) {
             AppLog.add(TAG, "call from unknown code ignored (contacts only)")
             return
         }
-        if (!known && state.isActive.not()) {
+        if (!known && !selectedCarrierPeer && state.isActive.not()) {
             // Не даём незнакомым кодам названивать: не больше нескольких звонков за интервал.
             val now = SystemClock.elapsedRealtime()
             while (unknownCallTimes.isNotEmpty() && now - unknownCallTimes.first() > UNKNOWN_CALL_WINDOW_MS) {
