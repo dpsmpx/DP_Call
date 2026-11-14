@@ -54,6 +54,10 @@ binary therefore includes components under additional licenses. License notices
 are generated into each flavor's `assets/carrier-licenses.txt`. GitHub releases
 include `DP_Call-native-sources.tar.gz` with patched guest sources, adapter,
 pinned IPtProxy/DNSTT sources, Go module checksums and vendored Tor dependencies.
+The source-only dpcalltor package anchors IPtProxy for `go mod vendor`: a module
+named in go.mod alone is insufficient for vendoring. The build checks the actual
+Lyrebird GPL license and implementation plus IPtProxy sources before archiving.
+This package is not a gomobile binding target and does not change either APK.
 The root project's MIT notice describes our own code, not exclusive licensing
 of every third-party binary. Service API permission is separate from source licensing.
 
